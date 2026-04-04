@@ -14,13 +14,13 @@ const runStatus = v.union(
 export const createRun = mutation({
   args: {
     user_id: v.string(),
-    claim: v.string(),
+    query: v.string(),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
     return await ctx.db.insert("pipeline_runs", {
       user_id: args.user_id,
-      claim: args.claim,
+      query: args.query,
       status: "pending",
       created_at: now,
       updated_at: now,

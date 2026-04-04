@@ -1,7 +1,7 @@
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 
 /**
- * Bedrock chat model for AI SDK (`generateObject`, etc.).
+ * Bedrock chat model for AI SDK (`generateObject`, query decomposition, etc.).
  * Uses `AWS_REGION`, `BEDROCK_MODEL_ID`, and standard AWS credential env vars.
  */
 export function createBedrockLanguageModel() {

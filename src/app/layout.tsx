@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Claim evidence — chat sandbox",
+  title: "Query evidence — chat sandbox",
   description: "Bedrock chat sandbox for local LLM wiring",
 };
 

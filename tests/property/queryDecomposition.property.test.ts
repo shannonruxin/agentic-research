@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as fc from "fast-check";
 import { generateObject } from "ai";
-import { decomposeClaim } from "@/lib/agents/claimDecomposition";
+import { decomposeQuery } from "@/lib/agents/queryDecomposition";
 
 vi.mock("@/lib/bedrockModel", () => ({
   createBedrockLanguageModel: vi.fn(() => ({})),
@@ -17,9 +17,9 @@ vi.mock("ai", async (importOriginal) => {
 
 const mockGenerateObject = vi.mocked(generateObject);
 
-// Feature: claim-evidence-retrieval — Agent 1 structured output invariants (mocked LLM)
+// Feature: query-evidence-retrieval — Agent 1 structured output invariants (mocked LLM)
 
-/** Avoid whitespace-only strings (decomposeClaim trims input). */
+/** Avoid whitespace-only strings (decomposeQuery trims input). */
 const nonWhitespaceText = (min: number, max: number) =>
   fc.string({ minLength: min, maxLength: max }).filter((s) => s.trim().length > 0);
 
@@ -34,26 +34,27 @@ const uniqueSupportAnglesArb = fc
   .filter((angles) => new Set(angles.map((a) => a.id)).size === angles.length);
 
 const decompositionArb = fc.record({
-  core_claim: nonWhitespaceText(1, 300),
+  kind: fc.constant("success" as const),
+  core_query: nonWhitespaceText(1, 300),
   keywords: fc.array(nonWhitespaceText(1, 40), { minLength: 1, maxLength: 12 }),
   support_angles: uniqueSupportAnglesArb,
 });
 
-describe("Claim decomposition properties (mocked generateObject)", () => {
+describe("Query decomposition properties (mocked generateObject)", () => {
   beforeEach(() => {
     mockGenerateObject.mockReset();
   });
 
   // Property 1: Decomposition output schema (Req 2.1)
-  it("any non-empty input yields non-empty core_claim, keywords, and support_angles", () => {
+  it("any non-empty input yields non-empty core_query, keywords, and support_angles", () => {
     return fc.assert(
       fc.asyncProperty(
         nonWhitespaceText(1, 500),
         decompositionArb,
         async (userText, decomp) => {
           mockGenerateObject.mockResolvedValueOnce({ object: decomp } as never);
-          const out = await decomposeClaim(userText);
-          expect(out.core_claim.length).toBeGreaterThan(0);
+          const out = await decomposeQuery(userText);
+          expect(out.core_query.length).toBeGreaterThan(0);
           expect(out.keywords.length).toBeGreaterThan(0);
           expect(out.support_angles.length).toBeGreaterThan(0);
         },
@@ -70,7 +71,7 @@ describe("Claim decomposition properties (mocked generateObject)", () => {
         decompositionArb,
         async (userText, decomp) => {
           mockGenerateObject.mockResolvedValueOnce({ object: decomp } as never);
-          const out = await decomposeClaim(userText);
+          const out = await decomposeQuery(userText);
           expect(out.support_angles.length).toBeGreaterThanOrEqual(2);
           expect(out.support_angles.length).toBeLessThanOrEqual(6);
         },

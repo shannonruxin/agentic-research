@@ -1,12 +1,13 @@
-// Agent 1 output
+// Agent 1 output (Query Decomposition)
 export interface SupportAngle {
   id: string;          // e.g. "angle_1"
   label: string;       // e.g. "meta-analysis"
   description: string;
 }
 
-export interface ClaimDecomposition {
-  core_claim: string;
+export interface QueryDecomposition {
+  /** Single normalized, investigable query. */
+  core_query: string;
   keywords: string[];
   support_angles: SupportAngle[];
 }
@@ -57,7 +58,7 @@ export interface SourceMetadata {
 
 export interface ScoredEvidence {
   angle_id: string;
-  claim: string;
+  core_query: string;
   extract: VerbatimExtract;
   source: SourceMetadata;
   breakdown: ScoreBreakdown;
@@ -78,7 +79,7 @@ export interface EvidenceResult {
 }
 
 export interface Top3Result {
-  claim: string;
+  core_query: string;
   results: EvidenceResult[]; // 0–3 items
   pipeline_run_id: string;
 }

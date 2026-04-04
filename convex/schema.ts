@@ -4,7 +4,7 @@ import { v } from "convex/values";
 export default defineSchema({
   pipeline_runs: defineTable({
     user_id: v.string(),
-    claim: v.string(),
+    query: v.string(),
     status: v.union(
       v.literal("pending"),
       v.literal("decomposing"),
