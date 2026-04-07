@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import type { QueryDecomposition } from "@/lib/types";
+import { ParallelExtractSandbox } from "@/components/ParallelExtractSandbox";
+import { ParallelSearchSandbox } from "@/components/ParallelSearchSandbox";
+import { StrategicResearchSandbox } from "@/components/StrategicResearchSandbox";
+import type { QueryDecomposition, SearchQueries } from "@/lib/types";
 
 type BubbleRole = "user" | "assistant";
 
@@ -26,11 +29,234 @@ export default function Home() {
   const [decomposeError, setDecomposeError] = useState<string | null>(null);
   const [decomposition, setDecomposition] = useState<QueryDecomposition | null>(null);
 
+  const [parallelSearchObjective, setParallelSearchObjective] = useState(
+    "When was the United Nations established, and where is that documented?",
+  );
+  const [parallelSearchQueriesText, setParallelSearchQueriesText] = useState("");
+  const [parallelSearchMaxResults, setParallelSearchMaxResults] = useState("");
+  const [parallelSearchMode, setParallelSearchMode] = useState<"" | "one-shot" | "agentic" | "fast">("");
+  const [parallelSearchLoading, setParallelSearchLoading] = useState(false);
+  const [parallelSearchError, setParallelSearchError] = useState<string | null>(null);
+  const [parallelSearchResultJson, setParallelSearchResultJson] = useState<string | null>(null);
+
+  const [parallelUrl, setParallelUrl] = useState("https://www.un.org/en/about-us/history-of-the-un");
+  const [parallelObjective, setParallelObjective] = useState("When was the United Nations established?");
+  const [parallelExcerpts, setParallelExcerpts] = useState(true);
+  const [parallelFullContent, setParallelFullContent] = useState(false);
+  const [parallelLoading, setParallelLoading] = useState(false);
+  const [parallelError, setParallelError] = useState<string | null>(null);
+  const [parallelResultJson, setParallelResultJson] = useState<string | null>(null);
+
+  const [agent2Json, setAgent2Json] = useState("");
+  const [yearRange, setYearRange] = useState("");
+  const [researchLoading, setResearchLoading] = useState(false);
+  const [researchError, setResearchError] = useState<string | null>(null);
+  const [searchQueries, setSearchQueries] = useState<SearchQueries | null>(null);
+
   function startNewChat() {
     setMessages([]);
     setDraft("");
     setError(null);
     setLoading(false);
+    setQueryDraft("");
+    setDecomposeLoading(false);
+    setDecomposeError(null);
+    setDecomposition(null);
+    setAgent2Json("");
+    setYearRange("");
+    setResearchLoading(false);
+    setResearchError(null);
+    setSearchQueries(null);
+    setParallelSearchObjective(
+      "When was the United Nations established, and where is that documented?",
+    );
+    setParallelSearchQueriesText("");
+    setParallelSearchMaxResults("");
+    setParallelSearchMode("");
+    setParallelSearchLoading(false);
+    setParallelSearchError(null);
+    setParallelSearchResultJson(null);
+    setParallelUrl("https://www.un.org/en/about-us/history-of-the-un");
+    setParallelObjective("When was the United Nations established?");
+    setParallelExcerpts(true);
+    setParallelFullContent(false);
+    setParallelLoading(false);
+    setParallelError(null);
+    setParallelResultJson(null);
+  }
+
+  async function runParallelSearch() {
+    const objective = parallelSearchObjective.trim();
+    const searchQueries = parallelSearchQueriesText
+      .split(/\r?\n/)
+      .map((q) => q.trim())
+      .filter(Boolean);
+    if ((!objective && searchQueries.length === 0) || parallelSearchLoading) {
+      return;
+    }
+    let maxResults: number | undefined;
+    const maxRaw = parallelSearchMaxResults.trim();
+    if (maxRaw) {
+      const n = Number.parseInt(maxRaw, 10);
+      if (Number.isNaN(n) || n < 1 || n > 50) {
+        setParallelSearchError("Max results must be an integer between 1 and 50.");
+        return;
+      }
+      maxResults = n;
+    }
+    setParallelSearchLoading(true);
+    setParallelSearchError(null);
+    setParallelSearchResultJson(null);
+    try {
+      const body: {
+        objective?: string;
+        searchQueries?: string[];
+        maxResults?: number;
+        mode?: "one-shot" | "agentic" | "fast";
+      } = {};
+      if (objective) {
+        body.objective = objective;
+      }
+      if (searchQueries.length > 0) {
+        body.searchQueries = searchQueries;
+      }
+      if (maxResults !== undefined) {
+        body.maxResults = maxResults;
+      }
+      if (parallelSearchMode) {
+        body.mode = parallelSearchMode;
+      }
+      const res = await fetch("/api/parallel-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data: unknown = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err =
+          typeof data === "object" &&
+          data !== null &&
+          "error" in data &&
+          typeof (data as { error: unknown }).error === "string"
+            ? (data as { error: string }).error
+            : `Request failed (${res.status})`;
+        setParallelSearchError(err);
+        return;
+      }
+      setParallelSearchResultJson(JSON.stringify(data, null, 2));
+    } catch {
+      setParallelSearchError("Network error");
+    } finally {
+      setParallelSearchLoading(false);
+    }
+  }
+
+  async function runParallelExtract() {
+    const url = parallelUrl.trim();
+    if (!url || parallelLoading) {
+      return;
+    }
+    if (!parallelExcerpts && !parallelFullContent) {
+      setParallelError("Enable at least one of Excerpts or Full content.");
+      return;
+    }
+    setParallelLoading(true);
+    setParallelError(null);
+    setParallelResultJson(null);
+    try {
+      const res = await fetch("/api/parallel-extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url,
+          objective: parallelObjective.trim() || undefined,
+          excerpts: parallelExcerpts,
+          fullContent: parallelFullContent,
+        }),
+      });
+      const data: unknown = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err =
+          typeof data === "object" &&
+          data !== null &&
+          "error" in data &&
+          typeof (data as { error: unknown }).error === "string"
+            ? (data as { error: string }).error
+            : `Request failed (${res.status})`;
+        setParallelError(err);
+        return;
+      }
+      setParallelResultJson(JSON.stringify(data, null, 2));
+    } catch {
+      setParallelError("Network error");
+    } finally {
+      setParallelLoading(false);
+    }
+  }
+
+  function loadAgent1IntoAgent2() {
+    if (!decomposition) {
+      return;
+    }
+    setAgent2Json(JSON.stringify(decomposition, null, 2));
+    setResearchError(null);
+  }
+
+  async function runResearch() {
+    const raw = agent2Json.trim();
+    if (!raw || researchLoading) {
+      return;
+    }
+    let parsedDecomposition: QueryDecomposition;
+    try {
+      parsedDecomposition = JSON.parse(raw) as QueryDecomposition;
+    } catch {
+      setResearchError("Agent 2 input is not valid JSON.");
+      return;
+    }
+    if (
+      typeof parsedDecomposition.core_query !== "string" ||
+      !Array.isArray(parsedDecomposition.keywords) ||
+      !Array.isArray(parsedDecomposition.support_angles)
+    ) {
+      setResearchError("JSON must include core_query, keywords[], and support_angles[].");
+      return;
+    }
+
+    setResearchLoading(true);
+    setResearchError(null);
+    setSearchQueries(null);
+    try {
+      const res = await fetch("/api/research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          decomposition: parsedDecomposition,
+          yearRange: yearRange.trim() ? yearRange.trim() : undefined,
+        }),
+      });
+      const data: unknown = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err =
+          typeof data === "object" &&
+          data !== null &&
+          "error" in data &&
+          typeof (data as { error: unknown }).error === "string"
+            ? (data as { error: string }).error
+            : `Request failed (${res.status})`;
+        const received =
+          typeof data === "object" && data !== null && "received" in data
+            ? `\n\n${JSON.stringify((data as { received: unknown }).received, null, 2)}`
+            : "";
+        setResearchError(`${err}${received}`);
+        return;
+      }
+      setSearchQueries(data as SearchQueries);
+    } catch {
+      setResearchError("Network error");
+    } finally {
+      setResearchLoading(false);
+    }
   }
 
   async function decompose() {
@@ -126,7 +352,8 @@ export default function Home() {
         <div>
           <h1 className="text-lg font-semibold text-zinc-900">LLM chat (Bedrock)</h1>
           <p className="text-xs text-zinc-500">
-            History is in this tab only (not saved to Convex). Pipeline DB is separate.
+            History is in this tab only (not saved to Convex). New chat resets chat, Agent 1, Parallel search/extract,
+            and Agent 2 sandbox state.
           </p>
         </div>
         <button
@@ -237,6 +464,49 @@ export default function Home() {
           </pre>
         ) : null}
       </section>
+
+      <ParallelSearchSandbox
+        objective={parallelSearchObjective}
+        onObjectiveChange={setParallelSearchObjective}
+        queriesText={parallelSearchQueriesText}
+        onQueriesTextChange={setParallelSearchQueriesText}
+        maxResults={parallelSearchMaxResults}
+        onMaxResultsChange={setParallelSearchMaxResults}
+        mode={parallelSearchMode}
+        onModeChange={setParallelSearchMode}
+        onRun={runParallelSearch}
+        loading={parallelSearchLoading}
+        error={parallelSearchError}
+        resultJson={parallelSearchResultJson}
+      />
+
+      <ParallelExtractSandbox
+        url={parallelUrl}
+        onUrlChange={setParallelUrl}
+        objective={parallelObjective}
+        onObjectiveChange={setParallelObjective}
+        excerpts={parallelExcerpts}
+        onExcerptsChange={setParallelExcerpts}
+        fullContent={parallelFullContent}
+        onFullContentChange={setParallelFullContent}
+        onRun={runParallelExtract}
+        loading={parallelLoading}
+        error={parallelError}
+        resultJson={parallelResultJson}
+      />
+
+      <StrategicResearchSandbox
+        agent1Decomposition={decomposition}
+        agent2InputJson={agent2Json}
+        onAgent2InputJsonChange={setAgent2Json}
+        yearRange={yearRange}
+        onYearRangeChange={setYearRange}
+        onLoadFromAgent1={loadAgent1IntoAgent2}
+        onRunResearch={runResearch}
+        loading={researchLoading}
+        error={researchError}
+        output={searchQueries}
+      />
     </div>
   );
 }
