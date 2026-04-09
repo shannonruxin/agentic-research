@@ -24,14 +24,80 @@ export interface SearchQueries {
   [angleId: string]: StrategyQueryItem[];
 }
 
-// Agent 3 intermediate — a page that passed the credibility filter
+// --- Target pipeline: AIAnswer → Agent 3 —
+
+export interface AIAnswerDeclaredSource {
+  url: string;
+  title?: string | null;
+}
+
+export interface AIAnswerOutput {
+  answer_text: string;
+  declared_sources: AIAnswerDeclaredSource[];
+}
+
+export interface EvidenceSegment {
+  segment_id: string;
+  /** Exact substring of AIAnswer.answer_text for flow ordering */
+  quote_from_ai_answer: string;
+  intent?: string;
+  /** Cynical audit question: what to validate or falsify for this span */
+  verification_challenge: string;
+}
+
+export type Agent3ResourceStatus = "ok" | "fetch_failed" | "not_credible" | "pending";
+
+export interface Agent3ResourceRow {
+  url: string;
+  segment_ids: string[];
+  angle_id?: string;
+  title?: string | null;
+  status: Agent3ResourceStatus;
+  notes?: string;
+}
+
+export interface Agent3EvidencePlan {
+  evidence_segments: EvidenceSegment[];
+  resources: Agent3ResourceRow[];
+}
+
+// Agent 4 — page text after Parallel extract (Agent 3 credibility filter may gate later use)
 export interface RetrievedPage {
   url: string;
-  author: string | null;
-  publication: string | null;
-  year: number | null;
+  /** Omitted in some JSON bodies; treat as unknown when absent */
+  author?: string | null;
+  publication?: string | null;
+  year?: number | null;
   cleanText: string;
   httpStatus: number;
+  /** Set when Parallel extract failed for this URL */
+  extract_error?: string;
+}
+
+/** URL (normalized) → page; stable JSON key = normalized URL string */
+export type ExtractBundle = Record<string, RetrievedPage>;
+
+/** Agent 5 — substring-safe crop aligned to AIAnswer flow */
+export interface CroppedEvidenceItem {
+  /** Order by first occurrence of supporting quote in `answer_text` */
+  flow_index: number;
+  segment_ids: string[];
+  url: string;
+  cropped_text: string;
+  location_hint?: string;
+  author?: string;
+  publication?: string;
+  year?: number | string;
+}
+
+/** Full target pipeline API response (dual-column UI) */
+export interface PipelineDualColumnResponse {
+  core_query: string;
+  decomposition: QueryDecomposition;
+  ai_answer: AIAnswerOutput;
+  agent3_plan: Agent3EvidencePlan;
+  evidence_items: CroppedEvidenceItem[];
+  pipeline_run_id?: string;
 }
 
 // Agent 4 output
