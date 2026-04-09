@@ -12,9 +12,16 @@ export interface QueryDecomposition {
   support_angles: SupportAngle[];
 }
 
-// Agent 2 output
+/** One planned web search under a support angle (Agent 2). */
+export interface StrategyQueryItem {
+  type: string;        // e.g. "baseline" | "deep_dive"
+  query: string;       // string passed to search APIs
+  reasoning: string;
+}
+
+// Agent 2 output — keyed by `support_angles[].id`
 export interface SearchQueries {
-  [angleId: string]: string[];
+  [angleId: string]: StrategyQueryItem[];
 }
 
 // Agent 3 intermediate — a page that passed the credibility filter

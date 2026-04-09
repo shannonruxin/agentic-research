@@ -41,7 +41,9 @@ export function StrategicResearchSandbox({
       </h2>
       <p className="text-xs text-zinc-500">
         Paste or load a <code className="rounded bg-zinc-100 px-1">QueryDecomposition</code> JSON. Optional year
-        range is forwarded to the API. Output appears after Agent 2 is implemented in task 5.2.
+        range is enforced in every generated search query. Output is{" "}
+        <code className="rounded bg-zinc-100 px-1">SearchQueries</code> (per-angle{" "}
+        <code className="rounded bg-zinc-100 px-1">StrategyQueryItem[]</code>).
       </p>
 
       <div className="flex flex-wrap gap-2">

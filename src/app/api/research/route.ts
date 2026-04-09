@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import {
+  generateStrategicResearch,
+  StrategicResearchModelError,
+  StrategicResearchValidationError,
+} from "@/lib/agents/strategicResearch";
 
 const supportAngleSchema = z.object({
   id: z.string().min(1),
@@ -20,7 +25,7 @@ const bodySchema = z.object({
 
 /**
  * POST `{ "decomposition": QueryDecomposition, "yearRange"?: string }`
- * → Agent 2 search queries (stub until `strategicResearch.ts` is wired in task 5.2).
+ * → `SearchQueries` (per-angle `StrategyQueryItem[]`).
  */
 export async function POST(req: Request) {
   let json: unknown;
@@ -41,18 +46,28 @@ export async function POST(req: Request) {
     );
   }
 
-  // Task 5.2: call strategicResearch agent with parsed.data.decomposition + parsed.data.yearRange
+  const ids = parsed.data.decomposition.support_angles.map((a) => a.id);
+  if (new Set(ids).size !== ids.length) {
+    return NextResponse.json(
+      { error: "decomposition.support_angles must have unique id values" },
+      { status: 400 },
+    );
+  }
 
-  return NextResponse.json(
-    {
-      error:
-        "Agent 2 (Strategic Research) is not implemented yet. Complete task 5.2 (`lib/agents/strategicResearch.ts`) and wire this route.",
-      received: {
-        core_query: parsed.data.decomposition.core_query,
-        angleIds: parsed.data.decomposition.support_angles.map((a) => a.id),
-        yearRange: parsed.data.yearRange ?? null,
-      },
-    },
-    { status: 501 },
-  );
+  try {
+    const result = await generateStrategicResearch(
+      parsed.data.decomposition,
+      parsed.data.yearRange,
+    );
+    return NextResponse.json(result);
+  } catch (e) {
+    if (e instanceof StrategicResearchValidationError) {
+      return NextResponse.json({ error: e.message }, { status: 502 });
+    }
+    if (e instanceof StrategicResearchModelError) {
+      return NextResponse.json({ error: e.message }, { status: 502 });
+    }
+    const message = e instanceof Error ? e.message : "Strategic research failed";
+    return NextResponse.json({ error: message }, { status: 502 });
+  }
 }

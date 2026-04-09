@@ -29,9 +29,7 @@ export default function Home() {
   const [decomposeError, setDecomposeError] = useState<string | null>(null);
   const [decomposition, setDecomposition] = useState<QueryDecomposition | null>(null);
 
-  const [parallelSearchObjective, setParallelSearchObjective] = useState(
-    "When was the United Nations established, and where is that documented?",
-  );
+  const [parallelSearchObjective, setParallelSearchObjective] = useState("");
   const [parallelSearchQueriesText, setParallelSearchQueriesText] = useState("");
   const [parallelSearchMaxResults, setParallelSearchMaxResults] = useState("");
   const [parallelSearchMode, setParallelSearchMode] = useState<"" | "one-shot" | "agentic" | "fast">("");
@@ -67,9 +65,7 @@ export default function Home() {
     setResearchLoading(false);
     setResearchError(null);
     setSearchQueries(null);
-    setParallelSearchObjective(
-      "When was the United Nations established, and where is that documented?",
-    );
+    setParallelSearchObjective("");
     setParallelSearchQueriesText("");
     setParallelSearchMaxResults("");
     setParallelSearchMode("");
