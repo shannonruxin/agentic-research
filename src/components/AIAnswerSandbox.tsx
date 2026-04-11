@@ -9,7 +9,13 @@ export type AIAnswerSandboxProps = {
   decomposition: QueryDecomposition | null;
   onUseAgent1CoreQuery: () => void;
   onRun: () => void;
+  /** AIAnswer → Agent 3 → Agent 4 → Agent 5 in one run. */
+  onRunFullVerification: () => void | Promise<void>;
+  /** True while any sandbox pipeline step is in flight (blocks both run buttons). */
+  pipelineBusy: boolean;
   loading: boolean;
+  /** True for the full stacked run until Agent 5 finishes or any step errors. */
+  fullVerificationRunning: boolean;
   error: string | null;
   output: AIAnswerOutput | null;
   canUseAgent1: boolean;
@@ -24,7 +30,10 @@ export function AIAnswerSandbox({
   decomposition,
   onUseAgent1CoreQuery,
   onRun,
+  onRunFullVerification,
+  pipelineBusy,
   loading,
+  fullVerificationRunning,
   error,
   output,
   canUseAgent1,
@@ -43,7 +52,7 @@ export function AIAnswerSandbox({
         <button
           type="button"
           className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-50"
-          disabled={!canUseAgent1 || loading}
+          disabled={!canUseAgent1 || pipelineBusy}
           onClick={onUseAgent1CoreQuery}
           title={canUseAgent1 ? "Fill topic with decomposition.core_query" : "Run Agent 1 first"}
         >
@@ -67,18 +76,32 @@ export function AIAnswerSandbox({
         className="min-h-[88px] w-full resize-y rounded-md border border-zinc-300 bg-white p-3 text-sm text-zinc-900 outline-none focus:border-zinc-500"
         placeholder="Question or topic for the direct answer…"
         value={topic}
-        disabled={loading}
+        disabled={pipelineBusy}
         onChange={(e) => onTopicChange(e.target.value)}
       />
 
-      <button
-        type="button"
-        className="w-full rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-        disabled={loading || !topic.trim()}
-        onClick={() => void onRun()}
-      >
-        {loading ? "Generating…" : "Run AIAnswer"}
-      </button>
+      <div className="flex w-full flex-col gap-2 sm:flex-row">
+        <button
+          type="button"
+          className="flex-1 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+          disabled={pipelineBusy || !topic.trim()}
+          onClick={() => void onRun()}
+        >
+          {loading ? "Generating…" : "Run AIAnswer"}
+        </button>
+        <button
+          type="button"
+          className="flex-1 rounded-md border border-zinc-900 bg-white px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-50"
+          disabled={pipelineBusy || !topic.trim()}
+          onClick={() => void onRunFullVerification()}
+        >
+          {fullVerificationRunning ? "Running verification…" : "Run AIAnswer & Verification"}
+        </button>
+      </div>
+      <p className="text-xs text-zinc-500">
+        <strong>Verification</strong> runs Agent 3 (search), Agent 4 (extract), and Agent 5 (crops) using the
+        optional decomposition / Agent 2 search queries already in sandbox state.
+      </p>
 
       {error ? (
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 whitespace-pre-wrap">

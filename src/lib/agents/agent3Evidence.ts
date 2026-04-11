@@ -88,6 +88,64 @@ function buildSegmentsUserMessage(answerText: string, decomposition?: QueryDecom
   return core.join("\n");
 }
 
+/**
+ * Map a model-emitted quote to the **exact** slice present in `answer` when possible
+ * (trim, Unicode spaces, straight vs curly quotes).
+ */
+export function resolveVerbatimQuoteInAnswer(answer: string, rawQuote: string): string | null {
+  const tryDirect = (q: string): string | null => {
+    const i = answer.indexOf(q);
+    return i >= 0 ? answer.slice(i, i + q.length) : null;
+  };
+
+  const unified = (s: string) =>
+    s
+      .replace(/\u00a0/g, " ")
+      .replace(/\u202f/g, " ")
+      .replace(/\u2009/g, " ");
+
+  const unifyQuotes = (s: string) =>
+    s
+      .replace(/\u201c|\u201d/g, '"')
+      .replace(/\u2018|\u2019/g, "'");
+
+  const candidates = [
+    rawQuote,
+    rawQuote.trim(),
+    unified(rawQuote),
+    unified(rawQuote).trim(),
+    unifyQuotes(rawQuote),
+    unifyQuotes(rawQuote).trim(),
+    unifyQuotes(unified(rawQuote)).trim(),
+  ];
+
+  for (const q of candidates) {
+    if (!q) continue;
+    const hit = tryDirect(q);
+    if (hit) return hit;
+  }
+
+  const answerU = unified(answer);
+  for (const q of candidates) {
+    if (!q) continue;
+    const qu = unified(q);
+    const i = answerU.indexOf(qu);
+    if (i < 0) continue;
+    return answer.slice(i, i + qu.length);
+  }
+
+  const answerQ = unifyQuotes(unified(answer));
+  for (const q of candidates) {
+    if (!q) continue;
+    const qq = unifyQuotes(unified(q));
+    const i = answerQ.indexOf(qq);
+    if (i < 0) continue;
+    return answer.slice(i, i + qq.length);
+  }
+
+  return null;
+}
+
 export async function generateEvidenceSegments(
   answerText: string,
   decomposition?: QueryDecomposition,
@@ -113,21 +171,27 @@ export async function generateEvidenceSegments(
       prompt: buildSegmentsUserMessage(trimmed, decomposition),
     });
 
-    for (let i = 0; i < object.evidence_segments.length; i++) {
-      const seg = object.evidence_segments[i]!;
-      if (!trimmed.includes(seg.quote_from_ai_answer)) {
-        throw new Agent3EvidenceModelError(
-          `Segment ${seg.segment_id}: quote_from_ai_answer must be an exact substring of answer_text`,
-        );
+    const kept: EvidenceSegment[] = [];
+    for (const s of object.evidence_segments) {
+      const resolved = resolveVerbatimQuoteInAnswer(trimmed, s.quote_from_ai_answer);
+      if (!resolved) {
+        continue;
       }
+      kept.push({
+        segment_id: s.segment_id.trim(),
+        quote_from_ai_answer: resolved,
+        intent: s.intent?.trim() || undefined,
+        verification_challenge: s.verification_challenge.trim(),
+      });
     }
 
-    return object.evidence_segments.map((s) => ({
-      segment_id: s.segment_id.trim(),
-      quote_from_ai_answer: s.quote_from_ai_answer,
-      intent: s.intent?.trim() || undefined,
-      verification_challenge: s.verification_challenge.trim(),
-    }));
+    if (kept.length === 0) {
+      throw new Agent3EvidenceModelError(
+        "No evidence segments could be tied to exact text in the answer (the model’s quotes did not match any contiguous span). Try Send again, or use Sandbox with Agent 1 decomposition.",
+      );
+    }
+
+    return kept;
   } catch (e) {
     if (e instanceof Agent3EvidenceModelError) {
       throw e;
