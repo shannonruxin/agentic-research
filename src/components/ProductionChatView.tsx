@@ -1,8 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { SelectableAnswerWithProof } from "@/components/SelectableAnswerWithProof";
+import type { ParallelSourcePolicyRequest } from "@/lib/parallelSourcePolicy";
 import {
+  runAgent345VerificationClient,
   runFullVerificationClient,
+  type Agent345VerificationStage,
   type FullVerificationStage,
 } from "@/lib/pipeline/runFullVerificationClient";
 import type { AIAnswerOutput, CroppedEvidenceItem } from "@/lib/types";
@@ -44,7 +48,11 @@ const STATUS = {
  * Product UI: **AIAnswer** (left) | evidence crops in flow order (right).
  * Runs **AIAnswer → Agent 3 → Agent 4 → Agent 5** on each send (Agent 5 = final crop step).
  */
-export function ProductionChatView() {
+export type ProductionChatViewProps = {
+  sourcePolicyRequest?: ParallelSourcePolicyRequest;
+};
+
+export function ProductionChatView({ sourcePolicyRequest }: ProductionChatViewProps) {
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +63,23 @@ export function ProductionChatView() {
   const [aiAnswer, setAiAnswer] = useState<AIAnswerOutput | null>(null);
   const [evidenceItems, setEvidenceItems] = useState<CroppedEvidenceItem[] | null>(null);
 
+  const [proofViewItems, setProofViewItems] = useState<CroppedEvidenceItem[] | null>(null);
+  const [proofViewError, setProofViewError] = useState<string | null>(null);
+  const [proofViewErrorStage, setProofViewErrorStage] = useState<Agent345VerificationStage | null>(
+    null,
+  );
+  const [proofBusy, setProofBusy] = useState(false);
+  const [proofStep, setProofStep] = useState<string | null>(null);
+  const [proofSelectionError, setProofSelectionError] = useState<string | null>(null);
+
+  function clearProofView() {
+    setProofViewItems(null);
+    setProofViewError(null);
+    setProofViewErrorStage(null);
+    setProofStep(null);
+    setProofSelectionError(null);
+  }
+
   function clearConversation() {
     setDraft("");
     setError(null);
@@ -64,6 +89,7 @@ export function ProductionChatView() {
     setLastUserMessage(null);
     setAiAnswer(null);
     setEvidenceItems(null);
+    clearProofView();
   }
 
   async function runPipeline(userText: string) {
@@ -72,6 +98,7 @@ export function ProductionChatView() {
     setPipelineStep(STATUS.thinking);
     setAiAnswer(null);
     setEvidenceItems(null);
+    clearProofView();
 
     const stageToStatus = {
       "ai-answer": STATUS.thinking,
@@ -80,10 +107,13 @@ export function ProductionChatView() {
       agent5: STATUS.aligning,
     } as const;
 
-    const result = await runFullVerificationClient({ query: userText }, {
-      onStartStage: (stage) => setPipelineStep(stageToStatus[stage]),
-      onAiAnswerReady: (ai) => setAiAnswer(ai),
-    });
+    const result = await runFullVerificationClient(
+      { query: userText, sourcePolicy: sourcePolicyRequest },
+      {
+        onStartStage: (stage) => setPipelineStep(stageToStatus[stage]),
+        onAiAnswerReady: (ai) => setAiAnswer(ai),
+      },
+    );
 
     setPipelineStep(null);
 
@@ -98,6 +128,45 @@ export function ProductionChatView() {
     setErrorStage(null);
     setAiAnswer(result.ai);
     setEvidenceItems(result.items);
+  }
+
+  async function runSelectionProof(synthetic: AIAnswerOutput) {
+    if (loading || proofBusy) {
+      return;
+    }
+    setProofSelectionError(null);
+    setProofViewError(null);
+    setProofViewErrorStage(null);
+    setProofViewItems(null);
+    setProofBusy(true);
+    const stageToStatus = {
+      agent3: STATUS.investigating,
+      agent4: STATUS.gathering,
+      agent5: STATUS.aligning,
+    } as const;
+    try {
+      const result = await runAgent345VerificationClient(
+        synthetic,
+        {
+          decompositionForAgent3: null,
+          searchQueries: null,
+          sourcePolicy: sourcePolicyRequest ?? null,
+        },
+        {
+          onStartStage: (stage) => setProofStep(stageToStatus[stage]),
+          onEndStage: () => setProofStep(null),
+        },
+      );
+      if (!result.ok) {
+        setProofViewError(result.error);
+        setProofViewErrorStage(result.stage);
+        return;
+      }
+      setProofViewItems(result.items);
+    } finally {
+      setProofBusy(false);
+      setProofStep(null);
+    }
   }
 
   async function send() {
@@ -115,15 +184,23 @@ export function ProductionChatView() {
     }
   }
 
-  const sortedItems = evidenceItems ?? [];
+  /** User ran or is running Proof on a highlight — right column follows that pass. */
+  const inSelectionProofFlow =
+    proofBusy || proofViewItems !== null || proofViewError !== null;
+  const sortedItems =
+    proofViewItems !== null ? proofViewItems : (evidenceItems ?? []);
   const hasRun = lastUserMessage !== null;
   const recoveryHint =
     hasRun && error !== null && aiAnswer !== null && evidenceItems === null
       ? productionRecoveryHint(errorStage, error)
       : null;
+  const selectionRecoveryHint =
+    proofViewError !== null && aiAnswer !== null
+      ? productionRecoveryHint(proofViewErrorStage, proofViewError)
+      : null;
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-zinc-200/60 pt-14 text-zinc-900">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-200/60 text-zinc-900">
       {lastUserMessage ? (
         <div className="shrink-0 border-b border-zinc-300 bg-white px-4 py-3 text-sm shadow-sm">
           <div className="mx-auto flex max-w-[min(100%,80rem)] gap-4">
@@ -138,7 +215,7 @@ export function ProductionChatView() {
       <div className="mx-auto flex min-h-0 w-full max-w-[80rem] flex-1 flex-col gap-px bg-zinc-300 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.6)] md:flex-row md:gap-0">
         <section
           aria-labelledby="prod-answer-heading"
-          className="flex min-h-[42vh] min-w-0 flex-1 flex-col bg-white md:min-h-0"
+          className="flex min-h-0 min-w-0 flex-1 flex-col bg-white"
         >
           <header
             id="prod-answer-heading"
@@ -168,10 +245,24 @@ export function ProductionChatView() {
               <p className="text-sm font-medium text-zinc-600">{pipelineStep ?? STATUS.thinking}</p>
             ) : aiAnswer ? (
               <div className="space-y-4">
-                <div className="rounded-2xl border border-zinc-200/80 bg-white p-4 shadow-sm">
-                  <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-800">
-                    {aiAnswer.answer_text}
+                {proofSelectionError ? (
+                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    {proofSelectionError}
                   </p>
+                ) : null}
+                <p className="text-[11px] text-zinc-500">
+                  Highlight any part of the answer, then tap <span className="font-semibold">Proof</span> to run
+                  verification on that passage only.
+                </p>
+                <div className="rounded-2xl border border-zinc-200/80 bg-white p-4 shadow-sm">
+                  <SelectableAnswerWithProof
+                    fullAnswer={aiAnswer}
+                    textClassName="whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-800 select-text"
+                    disabled={loading}
+                    proofBusy={proofBusy}
+                    onProof={(s) => void runSelectionProof(s)}
+                    onProofInvalid={setProofSelectionError}
+                  />
                 </div>
                 {aiAnswer.declared_sources.length > 0 ? (
                   <div>
@@ -203,7 +294,7 @@ export function ProductionChatView() {
 
         <section
           aria-labelledby="prod-evidence-heading"
-          className="flex min-h-[42vh] min-w-0 flex-1 flex-col bg-zinc-50 md:min-h-0"
+          className="flex min-h-0 min-w-0 flex-1 flex-col bg-zinc-50"
         >
           <header
             id="prod-evidence-heading"
@@ -216,9 +307,15 @@ export function ProductionChatView() {
                 </p>
                 <h2 className="text-sm font-semibold text-zinc-900">Evidence</h2>
                 <p className="text-xs text-zinc-600">
-                  Same order as in the answer · cropped excerpts
+                  {inSelectionProofFlow
+                    ? "Order follows your highlighted passage · cropped excerpts"
+                    : "Same order as in the answer · cropped excerpts"}
                 </p>
-                {loading && aiAnswer && evidenceItems === null && !error ? (
+                {proofBusy && aiAnswer ? (
+                  <p className="mt-1 text-[11px] font-medium text-violet-900/85">
+                    {proofStep ?? "Preparing evidence…"}
+                  </p>
+                ) : loading && aiAnswer && evidenceItems === null && !error && !inSelectionProofFlow ? (
                   <p className="mt-1 text-[11px] font-medium text-violet-900/85">
                     {pipelineStep ?? "Preparing evidence…"}
                   </p>
@@ -232,6 +329,86 @@ export function ProductionChatView() {
                 Supporting excerpts aligned to the answer appear here, in the order they show up in
                 the text.
               </p>
+            ) : inSelectionProofFlow ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-200/80 bg-violet-50/90 px-3 py-2 text-xs text-violet-950">
+                  <span className="font-medium">Selection proof (Agent 3 → 5)</span>
+                  <button
+                    type="button"
+                    className="shrink-0 font-semibold text-violet-800 underline-offset-2 hover:underline disabled:opacity-40"
+                    disabled={proofBusy}
+                    onClick={clearProofView}
+                  >
+                    Show full-answer evidence
+                  </button>
+                </div>
+                {proofViewError ? (
+                  <div className="rounded-xl border border-amber-200/90 bg-amber-50/90 p-4 text-sm text-amber-950 shadow-sm">
+                    <p className="font-semibold text-amber-900">
+                      {proofViewErrorStage
+                        ? `Stopped during: ${STAGE_USER_LABEL[proofViewErrorStage]}`
+                        : "Selection proof didn’t finish"}
+                    </p>
+                    <p className="mt-1.5 leading-relaxed text-amber-900/90">
+                      The full answer is unchanged on the left. You can adjust the highlight and try Proof again.
+                    </p>
+                    {selectionRecoveryHint ? (
+                      <p className="mt-3 rounded-lg border border-amber-200/70 bg-white/70 px-3 py-2 text-amber-950/95">
+                        {selectionRecoveryHint}
+                      </p>
+                    ) : null}
+                    <p className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-amber-900/70">
+                      Technical detail
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap rounded-lg border border-amber-200/80 bg-white/80 px-3 py-2 font-mono text-xs text-zinc-800">
+                      {proofViewError}
+                    </p>
+                  </div>
+                ) : proofBusy ? (
+                  <p className="text-sm font-medium text-zinc-600">{proofStep ?? STATUS.investigating}</p>
+                ) : proofViewItems !== null ? (
+                  sortedItems.length === 0 ? (
+                    <p className="text-sm text-zinc-500">
+                      No evidence crops for this selection (empty bundle or model returned no valid substrings).
+                    </p>
+                  ) : (
+                    <ol className="space-y-4">
+                      {sortedItems.map((item, idx) => (
+                        <li
+                          key={`proof-${item.url}-${item.flow_index}-${item.segment_ids.join(",")}-${idx}`}
+                          className="rounded-2xl border border-zinc-200/80 bg-white p-4 shadow-sm"
+                        >
+                          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                            <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-medium text-zinc-700">
+                              #{item.flow_index + 1}
+                            </span>
+                            {item.segment_ids.length > 0 ? (
+                              <span className="truncate">Segments: {item.segment_ids.join(", ")}</span>
+                            ) : null}
+                          </div>
+                          <p className="mb-3 whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-800">
+                            {item.cropped_text}
+                          </p>
+                          <a
+                            href={item.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="break-all text-sm text-emerald-700 underline-offset-2 hover:underline"
+                          >
+                            {item.url}
+                          </a>
+                          {(item.author || item.publication || item.year !== undefined) && (
+                            <p className="mt-2 text-xs text-zinc-500">
+                              {[item.author, item.publication, item.year].filter(Boolean).join(" · ")}
+                              {item.location_hint ? ` · ${item.location_hint}` : ""}
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ol>
+                  )
+                ) : null}
+              </div>
             ) : error && !aiAnswer ? (
               <p className="text-sm text-zinc-500">No evidence — the answer step did not complete.</p>
             ) : error && aiAnswer && evidenceItems === null ? (

@@ -1,5 +1,6 @@
 "use client";
 
+import { SelectableAnswerWithProof } from "@/components/SelectableAnswerWithProof";
 import type { AIAnswerOutput, QueryDecomposition } from "@/lib/types";
 
 export type AIAnswerSandboxProps = {
@@ -19,6 +20,11 @@ export type AIAnswerSandboxProps = {
   error: string | null;
   output: AIAnswerOutput | null;
   canUseAgent1: boolean;
+  /** Highlight a passage and run Agent 3 → 5 on that slice only. */
+  onProofSelection?: (synthetic: AIAnswerOutput) => void;
+  onProofSelectionInvalid?: (message: string) => void;
+  proofVerificationRunning?: boolean;
+  proofSelectionError?: string | null;
 };
 
 /**
@@ -37,6 +43,10 @@ export function AIAnswerSandbox({
   error,
   output,
   canUseAgent1,
+  onProofSelection,
+  onProofSelectionInvalid,
+  proofVerificationRunning = false,
+  proofSelectionError,
 }: AIAnswerSandboxProps) {
   return (
     <section aria-labelledby="ai-answer-heading" className="shrink-0 space-y-2 border-b border-zinc-200 pb-6">
@@ -109,12 +119,37 @@ export function AIAnswerSandbox({
         </p>
       ) : null}
 
+      {proofSelectionError ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {proofSelectionError}
+        </p>
+      ) : null}
+
+      {output && onProofSelection ? (
+        <p className="text-[11px] text-zinc-500">
+          Highlight text in the preview, then tap <span className="font-semibold">Proof</span> to run Agent 3 → 5 on
+          that passage only.
+        </p>
+      ) : null}
+
       {output ? (
         <div className="space-y-2">
           <p className="text-xs font-medium text-zinc-600">Answer (preview)</p>
-          <div className="max-h-48 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50/80 p-3 text-sm text-zinc-900 whitespace-pre-wrap">
-            {output.answer_text}
-          </div>
+          {onProofSelection ? (
+            <SelectableAnswerWithProof
+              fullAnswer={output}
+              className="max-h-48 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50/80 p-3"
+              textClassName="text-sm text-zinc-900 whitespace-pre-wrap select-text"
+              disabled={pipelineBusy}
+              proofBusy={proofVerificationRunning}
+              onProof={onProofSelection}
+              onProofInvalid={onProofSelectionInvalid}
+            />
+          ) : (
+            <div className="max-h-48 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50/80 p-3 text-sm text-zinc-900 whitespace-pre-wrap">
+              {output.answer_text}
+            </div>
+          )}
           <p className="text-xs font-medium text-zinc-600">Full JSON</p>
           <pre className="max-h-64 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
             {JSON.stringify(output, null, 2)}

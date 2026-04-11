@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { Agent3EvidenceSandbox } from "@/components/Agent3EvidenceSandbox";
 import { Agent4ExtractSandbox } from "@/components/Agent4ExtractSandbox";
@@ -8,7 +9,11 @@ import { AIAnswerSandbox } from "@/components/AIAnswerSandbox";
 import { ParallelExtractSandbox } from "@/components/ParallelExtractSandbox";
 import { ParallelSearchSandbox } from "@/components/ParallelSearchSandbox";
 import { StrategicResearchSandbox } from "@/components/StrategicResearchSandbox";
-import { runFullVerificationClient } from "@/lib/pipeline/runFullVerificationClient";
+import {
+  runAgent345VerificationClient,
+  runFullVerificationClient,
+} from "@/lib/pipeline/runFullVerificationClient";
+import type { ParallelSourcePolicyRequest } from "@/lib/parallelSourcePolicy";
 import type {
   Agent3EvidencePlan,
   AIAnswerOutput,
@@ -18,7 +23,12 @@ import type {
   SearchQueries,
 } from "@/lib/types";
 
-export function SandboxPipelinePage() {
+export type SandboxPipelinePageProps = {
+  /** Parallel Search source_policy merged with env on the server. */
+  sourcePolicyRequest?: ParallelSourcePolicyRequest;
+};
+
+export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePageProps) {
   const [queryDraft, setQueryDraft] = useState("");
   const [decomposeLoading, setDecomposeLoading] = useState(false);
   const [decomposeError, setDecomposeError] = useState<string | null>(null);
@@ -64,13 +74,22 @@ export function SandboxPipelinePage() {
   const [agent5Error, setAgent5Error] = useState<string | null>(null);
 
   const [fullVerificationRunning, setFullVerificationRunning] = useState(false);
+  const [experimentalZoneOpen, setExperimentalZoneOpen] = useState(false);
+  const [verificationTargetAnswer, setVerificationTargetAnswer] = useState<AIAnswerOutput | null>(
+    null,
+  );
+  const [proofVerificationRunning, setProofVerificationRunning] = useState(false);
+  const [proofSelectionError, setProofSelectionError] = useState<string | null>(null);
+
+  const verificationAiAnswer = verificationTargetAnswer ?? aiAnswerOutput;
 
   const sandboxPipelineBusy =
     aiAnswerLoading ||
     agent3Loading ||
     extractLoading ||
     agent5Loading ||
-    fullVerificationRunning;
+    fullVerificationRunning ||
+    proofVerificationRunning;
 
   function startNewChat() {
     setQueryDraft("");
@@ -110,10 +129,71 @@ export function SandboxPipelinePage() {
     setAgent5Loading(false);
     setAgent5Error(null);
     setFullVerificationRunning(false);
+    setVerificationTargetAnswer(null);
+    setProofVerificationRunning(false);
+    setProofSelectionError(null);
+  }
+
+  function clearVerificationScope() {
+    setVerificationTargetAnswer(null);
+    setAgent3Output(null);
+    setExtractBundle(null);
+    setAgent5Items(null);
+    setAgent3Error(null);
+    setExtractError(null);
+    setAgent5Error(null);
+  }
+
+  async function runProofOnSelection(synthetic: AIAnswerOutput) {
+    if (proofVerificationRunning || fullVerificationRunning) {
+      return;
+    }
+    setProofSelectionError(null);
+    setVerificationTargetAnswer(synthetic);
+    setAgent3Error(null);
+    setExtractError(null);
+    setAgent5Error(null);
+    setAgent3Output(null);
+    setExtractBundle(null);
+    setAgent5Items(null);
+    setProofVerificationRunning(true);
+    try {
+      const result = await runAgent345VerificationClient(
+        synthetic,
+        {
+          decompositionForAgent3: getDecompositionForAgent3(),
+          searchQueries,
+          sourcePolicy: sourcePolicyRequest,
+        },
+        {
+          onStartStage: (stage) => {
+            if (stage === "agent3") setAgent3Loading(true);
+            if (stage === "agent4") setExtractLoading(true);
+            if (stage === "agent5") setAgent5Loading(true);
+          },
+          onEndStage: (stage) => {
+            if (stage === "agent3") setAgent3Loading(false);
+            if (stage === "agent4") setExtractLoading(false);
+            if (stage === "agent5") setAgent5Loading(false);
+          },
+        },
+      );
+      if (!result.ok) {
+        if (result.stage === "agent3") setAgent3Error(result.error);
+        if (result.stage === "agent4") setExtractError(result.error);
+        if (result.stage === "agent5") setAgent5Error(result.error);
+        return;
+      }
+      setAgent3Output(result.plan);
+      setExtractBundle(result.bundle);
+      setAgent5Items(result.items);
+    } finally {
+      setProofVerificationRunning(false);
+    }
   }
 
   async function runAgent4Extract() {
-    if (!aiAnswerOutput || !agent3Output || extractLoading) {
+    if (!verificationAiAnswer || !agent3Output || extractLoading) {
       return;
     }
     setExtractLoading(true);
@@ -126,7 +206,7 @@ export function SandboxPipelinePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          aiAnswer: aiAnswerOutput,
+          aiAnswer: verificationAiAnswer,
           agent3Plan: agent3Output,
         }),
       });
@@ -151,7 +231,7 @@ export function SandboxPipelinePage() {
   }
 
   async function runAgent5Crop() {
-    if (!aiAnswerOutput || !agent3Output || !extractBundle || agent5Loading) {
+    if (!verificationAiAnswer || !agent3Output || !extractBundle || agent5Loading) {
       return;
     }
     if (Object.keys(extractBundle).length === 0) {
@@ -166,7 +246,7 @@ export function SandboxPipelinePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          aiAnswer: aiAnswerOutput,
+          aiAnswer: verificationAiAnswer,
           agent3Plan: agent3Output,
           extractBundle,
         }),
@@ -219,6 +299,7 @@ export function SandboxPipelinePage() {
         searchQueries?: string[];
         maxResults?: number;
         mode?: "one-shot" | "agentic" | "fast";
+        sourcePolicy?: ParallelSourcePolicyRequest;
       } = {};
       if (objective) {
         body.objective = objective;
@@ -231,6 +312,9 @@ export function SandboxPipelinePage() {
       }
       if (parallelSearchMode) {
         body.mode = parallelSearchMode;
+      }
+      if (sourcePolicyRequest && Object.keys(sourcePolicyRequest).length > 0) {
+        body.sourcePolicy = sourcePolicyRequest;
       }
       const res = await fetch("/api/parallel-search", {
         method: "POST",
@@ -346,6 +430,8 @@ export function SandboxPipelinePage() {
       return;
     }
 
+    setVerificationTargetAnswer(null);
+    setProofSelectionError(null);
     setFullVerificationRunning(true);
     setAiAnswerError(null);
     setAgent3Error(null);
@@ -363,6 +449,7 @@ export function SandboxPipelinePage() {
           decompositionForAiAnswer: decomposition ?? undefined,
           decompositionForAgent3: getDecompositionForAgent3(),
           searchQueries,
+          sourcePolicy: sourcePolicyRequest,
         },
         {
           onStartStage: (stage) => {
@@ -406,6 +493,8 @@ export function SandboxPipelinePage() {
     if (!topic || sandboxPipelineBusy) {
       return;
     }
+    setVerificationTargetAnswer(null);
+    setProofSelectionError(null);
     setAiAnswerLoading(true);
     setAiAnswerError(null);
     setAiAnswerOutput(null);
@@ -442,7 +531,7 @@ export function SandboxPipelinePage() {
     if (agent3Loading) {
       return;
     }
-    if (!aiAnswerOutput) {
+    if (!verificationAiAnswer) {
       setAgent3Error("Run AIAnswer first.");
       return;
     }
@@ -461,9 +550,12 @@ export function SandboxPipelinePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          aiAnswer: aiAnswerOutput,
+          aiAnswer: verificationAiAnswer,
           ...(decomp ? { decomposition: decomp } : {}),
           ...(sq ? { searchQueries: sq } : {}),
+          ...(sourcePolicyRequest && Object.keys(sourcePolicyRequest).length > 0
+            ? { sourcePolicy: sourcePolicyRequest }
+            : {}),
         }),
       });
       const data: unknown = await res.json().catch(() => ({}));
@@ -586,7 +678,7 @@ export function SandboxPipelinePage() {
         : "agent2_input";
 
   return (
-    <div className="mx-auto flex min-h-[100dvh] max-w-2xl flex-col gap-6 p-4 pb-10">
+    <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-6 overflow-y-auto px-4 pb-10 pt-0 sm:px-6">
       <header className="flex shrink-0 items-start justify-between gap-2">
         <div>
           <h1 className="text-lg font-semibold text-zinc-900">Pipeline sandboxes</h1>
@@ -616,40 +708,27 @@ export function SandboxPipelinePage() {
         error={aiAnswerError}
         output={aiAnswerOutput}
         canUseAgent1={decomposition !== null}
+        onProofSelection={(s) => void runProofOnSelection(s)}
+        onProofSelectionInvalid={setProofSelectionError}
+        proofVerificationRunning={proofVerificationRunning}
+        proofSelectionError={proofSelectionError}
       />
 
-      <ParallelSearchSandbox
-        objective={parallelSearchObjective}
-        onObjectiveChange={setParallelSearchObjective}
-        queriesText={parallelSearchQueriesText}
-        onQueriesTextChange={setParallelSearchQueriesText}
-        maxResults={parallelSearchMaxResults}
-        onMaxResultsChange={setParallelSearchMaxResults}
-        mode={parallelSearchMode}
-        onModeChange={setParallelSearchMode}
-        onRun={runParallelSearch}
-        loading={parallelSearchLoading}
-        error={parallelSearchError}
-        resultJson={parallelSearchResultJson}
-      />
-
-      <ParallelExtractSandbox
-        url={parallelUrl}
-        onUrlChange={setParallelUrl}
-        objective={parallelObjective}
-        onObjectiveChange={setParallelObjective}
-        excerpts={parallelExcerpts}
-        onExcerptsChange={setParallelExcerpts}
-        fullContent={parallelFullContent}
-        onFullContentChange={setParallelFullContent}
-        onRun={runParallelExtract}
-        loading={parallelLoading}
-        error={parallelError}
-        resultJson={parallelResultJson}
-      />
+      {verificationTargetAnswer ? (
+        <p className="-mt-2 text-xs text-violet-900/90">
+          <span className="font-semibold">Verification scope:</span> highlighted passage only (Agent 3–5).{" "}
+          <button
+            type="button"
+            className="font-medium text-violet-800 underline-offset-2 hover:underline"
+            onClick={clearVerificationScope}
+          >
+            Use full answer for Agent 3–5
+          </button>
+        </p>
+      ) : null}
 
       <Agent3EvidenceSandbox
-        hasAIAnswer={aiAnswerOutput !== null}
+        hasAIAnswer={verificationAiAnswer !== null}
         hasDecomposition={decompositionForAgent3 !== null}
         decompositionSource={decompositionSourceForAgent3}
         hasSearchQueries={searchQueries !== null}
@@ -660,7 +739,7 @@ export function SandboxPipelinePage() {
       />
 
       <Agent4ExtractSandbox
-        hasInputs={aiAnswerOutput !== null && agent3Output !== null}
+        hasInputs={verificationAiAnswer !== null && agent3Output !== null}
         onRun={runAgent4Extract}
         loading={extractLoading}
         error={extractError}
@@ -669,7 +748,7 @@ export function SandboxPipelinePage() {
 
       <Agent5CropSandbox
         hasInputs={
-          aiAnswerOutput !== null &&
+          verificationAiAnswer !== null &&
           agent3Output !== null &&
           extractBundle !== null &&
           Object.keys(extractBundle).length > 0
@@ -680,14 +759,34 @@ export function SandboxPipelinePage() {
         items={agent5Items}
       />
 
-      <section
-        aria-labelledby="experimental-zone-heading"
-        className="shrink-0 space-y-6 border-t border-zinc-200 pt-8"
-      >
-        <h2 id="experimental-zone-heading" className="text-sm font-semibold text-zinc-900">
-          Experimental Zone
-        </h2>
+      <section className="shrink-0 border-t border-zinc-200 pt-6">
+        <button
+          type="button"
+          id="experimental-zone-heading"
+          className="flex w-full items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-left transition-colors hover:bg-zinc-100"
+          aria-expanded={experimentalZoneOpen}
+          aria-controls="experimental-zone-panel"
+          onClick={() => setExperimentalZoneOpen((o) => !o)}
+        >
+          <span>
+            <span className="block text-sm font-semibold text-zinc-900">Experimental zone</span>
+            <span className="mt-0.5 block text-xs font-normal text-zinc-500">
+              {`Agent 1 / 2, Parallel search & extract — click to ${experimentalZoneOpen ? "collapse" : "expand"}`}
+            </span>
+          </span>
+          <ChevronDown
+            className={`size-5 shrink-0 text-zinc-600 transition-transform ${experimentalZoneOpen ? "rotate-180" : ""}`}
+            aria-hidden
+          />
+        </button>
 
+        {experimentalZoneOpen ? (
+          <div
+            id="experimental-zone-panel"
+            role="region"
+            aria-labelledby="experimental-zone-heading"
+            className="mt-4 space-y-6"
+          >
         <section aria-labelledby="decompose-heading" className="shrink-0 space-y-2">
           <h3 id="decompose-heading" className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
             Query decomposition
@@ -749,6 +848,38 @@ export function SandboxPipelinePage() {
           error={researchError}
           output={searchQueries}
         />
+
+        <ParallelSearchSandbox
+          objective={parallelSearchObjective}
+          onObjectiveChange={setParallelSearchObjective}
+          queriesText={parallelSearchQueriesText}
+          onQueriesTextChange={setParallelSearchQueriesText}
+          maxResults={parallelSearchMaxResults}
+          onMaxResultsChange={setParallelSearchMaxResults}
+          mode={parallelSearchMode}
+          onModeChange={setParallelSearchMode}
+          onRun={runParallelSearch}
+          loading={parallelSearchLoading}
+          error={parallelSearchError}
+          resultJson={parallelSearchResultJson}
+        />
+
+        <ParallelExtractSandbox
+          url={parallelUrl}
+          onUrlChange={setParallelUrl}
+          objective={parallelObjective}
+          onObjectiveChange={setParallelObjective}
+          excerpts={parallelExcerpts}
+          onExcerptsChange={setParallelExcerpts}
+          fullContent={parallelFullContent}
+          onFullContentChange={setParallelFullContent}
+          onRun={runParallelExtract}
+          loading={parallelLoading}
+          error={parallelError}
+          resultJson={parallelResultJson}
+        />
+          </div>
+        ) : null}
       </section>
     </div>
   );

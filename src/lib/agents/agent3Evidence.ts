@@ -10,6 +10,8 @@ import type {
 } from "@/lib/types";
 import { createBedrockLanguageModel } from "@/lib/bedrockModel";
 import { createParallelClient } from "@/lib/parallelClient";
+import type { ParallelSourcePolicy } from "@/lib/parallelSourcePolicy";
+import { parallelSourcePolicyFromEnv, sourcePolicyForBetaSearch } from "@/lib/parallelSourcePolicy";
 
 /** Configuration / LLM / validation failure for Agent 3. */
 export class Agent3EvidenceModelError extends Error {
@@ -273,6 +275,7 @@ export async function generateAgent3EvidencePlan(
   aiAnswer: AIAnswerOutput,
   decomposition?: QueryDecomposition,
   searchQueries?: SearchQueries,
+  options?: { sourcePolicy?: ParallelSourcePolicy | null },
 ): Promise<Agent3EvidencePlan> {
   if (!aiAnswer.answer_text?.trim()) {
     throw new Agent3EvidenceModelError("aiAnswer.answer_text is required.");
@@ -303,6 +306,9 @@ export async function generateAgent3EvidencePlan(
     throw new Agent3EvidenceModelError(msg);
   }
 
+  const sourcePolicy =
+    options?.sourcePolicy !== undefined ? options.sourcePolicy : parallelSourcePolicyFromEnv();
+
   const strategyRows = sq ? flattenStrategyQueries(sq) : [];
   const urlMap = new Map<string, Agent3ResourceRow>();
 
@@ -321,6 +327,7 @@ export async function generateAgent3EvidencePlan(
         search_queries: queries.length > 0 ? queries : null,
         max_results: MAX_SEARCH_RESULTS,
         mode: "one-shot",
+        source_policy: sourcePolicyForBetaSearch(sourcePolicy),
       });
 
       const hits = result.results ?? [];

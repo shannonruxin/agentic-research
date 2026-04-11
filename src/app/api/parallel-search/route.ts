@@ -1,6 +1,21 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createParallelClient } from "@/lib/parallelClient";
+import {
+  PARALLEL_SOURCE_POLICY_MAX_DOMAINS,
+  mergeParallelSourcePolicy,
+  parallelSourcePolicyFromEnv,
+  sourcePolicyForBetaSearch,
+} from "@/lib/parallelSourcePolicy";
+
+const sourcePolicyBodySchema = z
+  .object({
+    excludeDomains: z.array(z.string().max(256)).max(PARALLEL_SOURCE_POLICY_MAX_DOMAINS).optional(),
+    includeDomains: z.array(z.string().max(256)).max(PARALLEL_SOURCE_POLICY_MAX_DOMAINS).optional(),
+    afterDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    beforeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  })
+  .optional();
 
 const bodySchema = z
   .object({
@@ -8,6 +23,7 @@ const bodySchema = z
     searchQueries: z.array(z.string()).optional(),
     maxResults: z.number().int().min(1).max(50).optional(),
     mode: z.enum(["one-shot", "agentic", "fast"]).optional(),
+    sourcePolicy: sourcePolicyBodySchema,
   })
   .superRefine((data, ctx) => {
     const obj = data.objective?.trim() ?? "";
@@ -24,8 +40,10 @@ const bodySchema = z
 export const maxDuration = 120;
 
 /**
- * POST `{ objective?, searchQueries?, maxResults?, mode? }` → Parallel Search API
+ * POST `{ objective?, searchQueries?, maxResults?, mode?, sourcePolicy? }` → Parallel Search API
  * (`search_id`, `results`, `warnings`, `usage`).
+ *
+ * Optional `sourcePolicy` merges with env defaults (`PARALLEL_SEARCH_*` — see `parallelSourcePolicy.ts`).
  */
 export async function POST(req: Request) {
   let json: unknown;
@@ -54,12 +72,18 @@ export async function POST(req: Request) {
   const objectiveTrim = parsed.data.objective?.trim() ?? "";
   const queries = (parsed.data.searchQueries ?? []).map((q) => q.trim()).filter(Boolean);
 
+  const sourcePolicy = mergeParallelSourcePolicy(
+    parallelSourcePolicyFromEnv(),
+    parsed.data.sourcePolicy ?? undefined,
+  );
+
   try {
     const result = await client.beta.search({
       objective: objectiveTrim || null,
       search_queries: queries.length > 0 ? queries : null,
       max_results: parsed.data.maxResults ?? null,
       mode: parsed.data.mode ?? null,
+      source_policy: sourcePolicyForBetaSearch(sourcePolicy),
     });
 
     return NextResponse.json({

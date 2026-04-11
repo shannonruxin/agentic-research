@@ -4,6 +4,11 @@ import {
   Agent3EvidenceModelError,
   generateAgent3EvidencePlan,
 } from "@/lib/agents/agent3Evidence";
+import {
+  PARALLEL_SOURCE_POLICY_MAX_DOMAINS,
+  mergeParallelSourcePolicy,
+  parallelSourcePolicyFromEnv,
+} from "@/lib/parallelSourcePolicy";
 
 const supportAngleSchema = z.object({
   id: z.string().min(1),
@@ -35,18 +40,29 @@ const aiAnswerSchema = z.object({
 
 const searchQueriesSchema = z.record(z.string(), z.array(strategyItemSchema).min(1));
 
+const sourcePolicyBodySchema = z
+  .object({
+    excludeDomains: z.array(z.string().max(256)).max(PARALLEL_SOURCE_POLICY_MAX_DOMAINS).optional(),
+    includeDomains: z.array(z.string().max(256)).max(PARALLEL_SOURCE_POLICY_MAX_DOMAINS).optional(),
+    afterDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    beforeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  })
+  .optional();
+
 const bodySchema = z.object({
   aiAnswer: aiAnswerSchema,
   /** Optional: improves segment framing and enables angle-scoped strategy queries. */
   decomposition: decompositionSchema.optional(),
   /** Optional: extra search query strings per angle when decomposition is present; extra queries otherwise. */
   searchQueries: searchQueriesSchema.optional(),
+  /** Optional: merged with `PARALLEL_SEARCH_*` env (Parallel Search source_policy). */
+  sourcePolicy: sourcePolicyBodySchema,
 });
 
 export const maxDuration = 300;
 
 /**
- * POST `{ aiAnswer, decomposition?, searchQueries? }` → `Agent3EvidencePlan`
+ * POST `{ aiAnswer, decomposition?, searchQueries?, sourcePolicy? }` → `Agent3EvidencePlan`
  * Only `aiAnswer` is required.
  */
 export async function POST(req: Request) {
@@ -61,7 +77,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json(
       {
-        error: "Invalid body: expected { aiAnswer, decomposition?, searchQueries? }",
+        error: "Invalid body: expected { aiAnswer, decomposition?, searchQueries?, sourcePolicy? }",
         details: parsed.error.flatten(),
       },
       { status: 400 },
@@ -92,8 +108,15 @@ export async function POST(req: Request) {
     }
   }
 
+  const sourcePolicy = mergeParallelSourcePolicy(
+    parallelSourcePolicyFromEnv(),
+    parsed.data.sourcePolicy ?? undefined,
+  );
+
   try {
-    const result = await generateAgent3EvidencePlan(parsed.data.aiAnswer, dec, sq);
+    const result = await generateAgent3EvidencePlan(parsed.data.aiAnswer, dec, sq, {
+      sourcePolicy,
+    });
     return NextResponse.json(result);
   } catch (e) {
     if (e instanceof Agent3EvidenceModelError) {
