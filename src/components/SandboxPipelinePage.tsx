@@ -64,6 +64,9 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
   const [agent3Loading, setAgent3Loading] = useState(false);
   const [agent3Error, setAgent3Error] = useState<string | null>(null);
   const [agent3Output, setAgent3Output] = useState<Agent3EvidencePlan | null>(null);
+  const [agent3CustomAnswerText, setAgent3CustomAnswerText] = useState("");
+  /** `aiAnswer` body that produced the current Agent 3 plan (for Agent 4/5). */
+  const [agent345ContextAnswer, setAgent345ContextAnswer] = useState<AIAnswerOutput | null>(null);
 
   const [extractBundle, setExtractBundle] = useState<ExtractBundle | null>(null);
   const [extractLoading, setExtractLoading] = useState(false);
@@ -82,6 +85,14 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
   const [proofSelectionError, setProofSelectionError] = useState<string | null>(null);
 
   const verificationAiAnswer = verificationTargetAnswer ?? aiAnswerOutput;
+
+  function getAiAnswerForManualAgent3(): AIAnswerOutput | null {
+    const custom = agent3CustomAnswerText.trim();
+    if (custom) {
+      return { answer_text: custom, declared_sources: [] };
+    }
+    return verificationAiAnswer;
+  }
 
   const sandboxPipelineBusy =
     aiAnswerLoading ||
@@ -132,6 +143,8 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
     setVerificationTargetAnswer(null);
     setProofVerificationRunning(false);
     setProofSelectionError(null);
+    setAgent3CustomAnswerText("");
+    setAgent345ContextAnswer(null);
   }
 
   function clearVerificationScope() {
@@ -142,6 +155,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
     setAgent3Error(null);
     setExtractError(null);
     setAgent5Error(null);
+    setAgent345ContextAnswer(null);
   }
 
   async function runProofOnSelection(synthetic: AIAnswerOutput) {
@@ -153,6 +167,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
     setAgent3Error(null);
     setExtractError(null);
     setAgent5Error(null);
+    setAgent345ContextAnswer(null);
     setAgent3Output(null);
     setExtractBundle(null);
     setAgent5Items(null);
@@ -187,13 +202,14 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
       setAgent3Output(result.plan);
       setExtractBundle(result.bundle);
       setAgent5Items(result.items);
+      setAgent345ContextAnswer(synthetic);
     } finally {
       setProofVerificationRunning(false);
     }
   }
 
   async function runAgent4Extract() {
-    if (!verificationAiAnswer || !agent3Output || extractLoading) {
+    if (!agent345ContextAnswer || !agent3Output || extractLoading) {
       return;
     }
     setExtractLoading(true);
@@ -206,7 +222,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          aiAnswer: verificationAiAnswer,
+          aiAnswer: agent345ContextAnswer,
           agent3Plan: agent3Output,
         }),
       });
@@ -231,7 +247,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
   }
 
   async function runAgent5Crop() {
-    if (!verificationAiAnswer || !agent3Output || !extractBundle || agent5Loading) {
+    if (!agent345ContextAnswer || !agent3Output || !extractBundle || agent5Loading) {
       return;
     }
     if (Object.keys(extractBundle).length === 0) {
@@ -246,7 +262,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          aiAnswer: verificationAiAnswer,
+          aiAnswer: agent345ContextAnswer,
           agent3Plan: agent3Output,
           extractBundle,
         }),
@@ -441,6 +457,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
     setAgent3Output(null);
     setExtractBundle(null);
     setAgent5Items(null);
+    setAgent345ContextAnswer(null);
 
     try {
       const result = await runFullVerificationClient(
@@ -472,6 +489,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
         if (result.ai) setAiAnswerOutput(result.ai);
         if (result.plan) setAgent3Output(result.plan);
         if (result.bundle) setExtractBundle(result.bundle);
+        if (result.ai && result.plan) setAgent345ContextAnswer(result.ai);
         if (result.stage === "ai-answer") setAiAnswerError(result.error);
         if (result.stage === "agent3") setAgent3Error(result.error);
         if (result.stage === "agent4") setExtractError(result.error);
@@ -483,6 +501,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
       setAgent3Output(result.plan);
       setExtractBundle(result.bundle);
       setAgent5Items(result.items);
+      setAgent345ContextAnswer(result.ai);
     } finally {
       setFullVerificationRunning(false);
     }
@@ -531,8 +550,9 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
     if (agent3Loading) {
       return;
     }
-    if (!verificationAiAnswer) {
-      setAgent3Error("Run AIAnswer first.");
+    const aiInput = getAiAnswerForManualAgent3();
+    if (!aiInput) {
+      setAgent3Error("Enter answer text in Agent 3, or run AIAnswer above.");
       return;
     }
     const decomp = getDecompositionForAgent3();
@@ -540,6 +560,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
 
     setAgent3Loading(true);
     setAgent3Error(null);
+    setAgent345ContextAnswer(null);
     setAgent3Output(null);
     setExtractBundle(null);
     setExtractError(null);
@@ -550,7 +571,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          aiAnswer: verificationAiAnswer,
+          aiAnswer: aiInput,
           ...(decomp ? { decomposition: decomp } : {}),
           ...(sq ? { searchQueries: sq } : {}),
           ...(sourcePolicyRequest && Object.keys(sourcePolicyRequest).length > 0
@@ -571,6 +592,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
         return;
       }
       setAgent3Output(data as Agent3EvidencePlan);
+      setAgent345ContextAnswer(aiInput);
     } catch {
       setAgent3Error("Network error");
     } finally {
@@ -728,7 +750,15 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
       ) : null}
 
       <Agent3EvidenceSandbox
-        hasAIAnswer={verificationAiAnswer !== null}
+        hasPipelineAIAnswer={verificationAiAnswer !== null}
+        customAnswerText={agent3CustomAnswerText}
+        onCustomAnswerTextChange={setAgent3CustomAnswerText}
+        onFillFromPipelineAIAnswer={() => {
+          if (verificationAiAnswer) {
+            setAgent3CustomAnswerText(verificationAiAnswer.answer_text);
+          }
+        }}
+        canRunAgent3={getAiAnswerForManualAgent3() !== null}
         hasDecomposition={decompositionForAgent3 !== null}
         decompositionSource={decompositionSourceForAgent3}
         hasSearchQueries={searchQueries !== null}
@@ -739,7 +769,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
       />
 
       <Agent4ExtractSandbox
-        hasInputs={verificationAiAnswer !== null && agent3Output !== null}
+        hasInputs={agent345ContextAnswer !== null && agent3Output !== null}
         onRun={runAgent4Extract}
         loading={extractLoading}
         error={extractError}
@@ -748,7 +778,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
 
       <Agent5CropSandbox
         hasInputs={
-          verificationAiAnswer !== null &&
+          agent345ContextAnswer !== null &&
           agent3Output !== null &&
           extractBundle !== null &&
           Object.keys(extractBundle).length > 0
