@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CopyOutputButton } from "@/components/CopyOutputButton";
 import { SelectableAnswerWithProof } from "@/components/SelectableAnswerWithProof";
 import type { ParallelSourcePolicyRequest } from "@/lib/parallelSourcePolicy";
 import {
@@ -254,6 +255,10 @@ export function ProductionChatView({ sourcePolicyRequest }: ProductionChatViewPr
                   Highlight any part of the answer, then tap <span className="font-semibold">Proof</span> to run
                   verification on that passage only.
                 </p>
+                <div className="flex flex-wrap gap-2">
+                  <CopyOutputButton text={aiAnswer.answer_text} label="Copy answer" />
+                  <CopyOutputButton text={JSON.stringify(aiAnswer, null, 2)} label="Copy JSON" />
+                </div>
                 <div className="rounded-2xl border border-zinc-200/80 bg-white p-4 shadow-sm">
                   <SelectableAnswerWithProof
                     fullAnswer={aiAnswer}
@@ -372,7 +377,14 @@ export function ProductionChatView({ sourcePolicyRequest }: ProductionChatViewPr
                       No evidence crops for this selection (empty bundle or model returned no valid substrings).
                     </p>
                   ) : (
-                    <ol className="space-y-4">
+                    <>
+                      <div className="mb-2 flex justify-end">
+                        <CopyOutputButton
+                          text={JSON.stringify(sortedItems, null, 2)}
+                          label="Copy evidence JSON"
+                        />
+                      </div>
+                      <ol className="space-y-4">
                       {sortedItems.map((item, idx) => (
                         <li
                           key={`proof-${item.url}-${item.flow_index}-${item.segment_ids.join(",")}-${idx}`}
@@ -405,7 +417,8 @@ export function ProductionChatView({ sourcePolicyRequest }: ProductionChatViewPr
                           )}
                         </li>
                       ))}
-                    </ol>
+                      </ol>
+                    </>
                   )
                 ) : null}
               </div>
@@ -440,7 +453,14 @@ export function ProductionChatView({ sourcePolicyRequest }: ProductionChatViewPr
                   No evidence crops for this run (empty bundle or model returned no valid substrings).
                 </p>
               ) : (
-                <ol className="space-y-4">
+                <>
+                  <div className="mb-2 flex justify-end">
+                    <CopyOutputButton
+                      text={JSON.stringify(sortedItems, null, 2)}
+                      label="Copy evidence JSON"
+                    />
+                  </div>
+                  <ol className="space-y-4">
                   {sortedItems.map((item, idx) => (
                     <li
                       key={`${item.url}-${item.flow_index}-${item.segment_ids.join(",")}-${idx}`}
@@ -473,7 +493,8 @@ export function ProductionChatView({ sourcePolicyRequest }: ProductionChatViewPr
                       )}
                     </li>
                   ))}
-                </ol>
+                  </ol>
+                </>
               )
             ) : (
               <p className="text-sm text-zinc-500">Waiting for evidence…</p>

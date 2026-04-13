@@ -1,5 +1,6 @@
 "use client";
 
+import { CopyOutputButton } from "@/components/CopyOutputButton";
 import type { ExtractBundle } from "@/lib/types";
 
 export type Agent4ExtractSandboxProps = {
@@ -52,9 +53,16 @@ export function Agent4ExtractSandbox({
 
       {bundle && urlCount > 0 ? (
         <div className="space-y-1">
-          <p className="text-xs font-medium text-zinc-600">
-            ExtractBundle ({urlCount} URL{urlCount === 1 ? "" : "s"})
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium text-zinc-600">
+              ExtractBundle ({urlCount} URL{urlCount === 1 ? "" : "s"})
+            </p>
+            <CopyOutputButton
+              text={JSON.stringify(bundle, null, 2)}
+              label="Copy"
+              disabled={loading}
+            />
+          </div>
           <pre className="max-h-96 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
             {JSON.stringify(bundle, null, 2)}
           </pre>

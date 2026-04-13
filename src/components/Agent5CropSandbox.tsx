@@ -1,5 +1,6 @@
 "use client";
 
+import { CopyOutputButton } from "@/components/CopyOutputButton";
 import type { CroppedEvidenceItem } from "@/lib/types";
 
 export type Agent5CropSandboxProps = {
@@ -49,7 +50,14 @@ export function Agent5CropSandbox({
 
       {items && items.length > 0 ? (
         <div className="space-y-3">
-          <p className="text-xs font-medium text-zinc-600">Cropped evidence (sorted by flow_index)</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium text-zinc-600">Cropped evidence (sorted by flow_index)</p>
+            <CopyOutputButton
+              text={JSON.stringify(items, null, 2)}
+              label="Copy JSON"
+              disabled={loading}
+            />
+          </div>
           <ol className="list-decimal space-y-3 pl-4 text-sm text-zinc-900">
             {items.map((it, idx) => (
               <li key={`${it.url}-${it.flow_index}-${idx}`} className="space-y-1">

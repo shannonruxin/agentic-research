@@ -1,5 +1,7 @@
 "use client";
 
+import { CopyOutputButton } from "@/components/CopyOutputButton";
+
 export type ParallelSearchSandboxProps = {
   objective: string;
   onObjectiveChange: (value: string) => void;
@@ -127,9 +129,15 @@ export function ParallelSearchSandbox({
       ) : null}
 
       {resultJson ? (
-        <pre className="max-h-96 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
-          {resultJson}
-        </pre>
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium text-zinc-600">Result</p>
+            <CopyOutputButton text={resultJson} label="Copy" disabled={loading} />
+          </div>
+          <pre className="max-h-96 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
+            {resultJson}
+          </pre>
+        </div>
       ) : null}
     </section>
   );

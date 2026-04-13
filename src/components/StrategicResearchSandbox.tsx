@@ -1,5 +1,6 @@
 "use client";
 
+import { CopyOutputButton } from "@/components/CopyOutputButton";
 import type { QueryDecomposition, SearchQueries } from "@/lib/types";
 
 export type StrategicResearchSandboxProps = {
@@ -105,7 +106,10 @@ export function StrategicResearchSandbox({
 
       {output ? (
         <div className="space-y-1">
-          <p className="text-xs font-medium text-zinc-600">Agent 2 output</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium text-zinc-600">Agent 2 output</p>
+            <CopyOutputButton text={JSON.stringify(output, null, 2)} label="Copy" disabled={loading} />
+          </div>
           <pre className="max-h-80 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
             {JSON.stringify(output, null, 2)}
           </pre>

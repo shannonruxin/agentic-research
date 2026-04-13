@@ -1,5 +1,6 @@
 "use client";
 
+import { CopyOutputButton } from "@/components/CopyOutputButton";
 import { SelectableAnswerWithProof } from "@/components/SelectableAnswerWithProof";
 import type { AIAnswerOutput, QueryDecomposition } from "@/lib/types";
 
@@ -134,7 +135,10 @@ export function AIAnswerSandbox({
 
       {output ? (
         <div className="space-y-2">
-          <p className="text-xs font-medium text-zinc-600">Answer (preview)</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium text-zinc-600">Answer (preview)</p>
+            <CopyOutputButton text={output.answer_text} label="Copy answer" disabled={pipelineBusy} />
+          </div>
           {onProofSelection ? (
             <SelectableAnswerWithProof
               fullAnswer={output}
@@ -150,7 +154,14 @@ export function AIAnswerSandbox({
               {output.answer_text}
             </div>
           )}
-          <p className="text-xs font-medium text-zinc-600">Full JSON</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium text-zinc-600">Full JSON</p>
+            <CopyOutputButton
+              text={JSON.stringify(output, null, 2)}
+              label="Copy"
+              disabled={pipelineBusy}
+            />
+          </div>
           <pre className="max-h-64 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
             {JSON.stringify(output, null, 2)}
           </pre>

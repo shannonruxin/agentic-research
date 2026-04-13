@@ -2,6 +2,7 @@
 
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
+import { CopyOutputButton } from "@/components/CopyOutputButton";
 import { Agent3EvidenceSandbox } from "@/components/Agent3EvidenceSandbox";
 import { Agent4ExtractSandbox } from "@/components/Agent4ExtractSandbox";
 import { Agent5CropSandbox } from "@/components/Agent5CropSandbox";
@@ -858,6 +859,14 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
                 >
                   Send core query to AIAnswer (top)
                 </button>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-medium text-zinc-600">Agent 1 output</p>
+                <CopyOutputButton
+                  text={JSON.stringify(decomposition, null, 2)}
+                  label="Copy"
+                  disabled={decomposeLoading}
+                />
               </div>
               <pre className="max-h-80 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
                 {JSON.stringify(decomposition, null, 2)}
