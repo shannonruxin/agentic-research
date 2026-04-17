@@ -15,18 +15,22 @@ import type { AIAnswerOutput, CroppedEvidenceItem } from "@/lib/types";
 const STAGE_USER_LABEL: Record<FullVerificationStage, string> = {
   "ai-answer": "Drafting the answer",
   agent3: "Splitting the answer into checkable quotes",
+  agent6: "Finding web sources for each quote",
   agent4: "Downloading source pages",
   agent5: "Aligning excerpts to the answer",
 };
 
 function productionRecoveryHint(stage: FullVerificationStage | null, errorText: string): string | null {
   if (
-    stage === "agent3" &&
+    (stage === "agent3" || stage === "agent6") &&
     (errorText.includes("No evidence segments could be tied") ||
       errorText.includes("exact contiguous span") ||
       errorText.includes("quote_from_ai_answer"))
   ) {
     return "The app keeps only quotes that appear verbatim in the answer. If nothing matched, try Send again, or use Sandbox: run Agent 1 (decomposition), then Run AIAnswer & Verification.";
+  }
+  if (stage === "agent6" && errorText.includes("Parallel")) {
+    return "Check Parallel / network configuration; then try again.";
   }
   if (stage === "agent4") {
     return "Check Parallel / network configuration and declared URLs; then try again.";
@@ -41,6 +45,7 @@ function productionRecoveryHint(stage: FullVerificationStage | null, errorText: 
 const STATUS = {
   thinking: "Thinking…",
   investigating: "Investigating how that answer holds up…",
+  findingSources: "Finding sources that speak to each claim…",
   gathering: "Gathering primary text from the sources worth opening…",
   aligning: "Aligning the strongest passages with how the answer unfolds…",
 } as const;
@@ -104,6 +109,7 @@ export function ProductionChatView({ sourcePolicyRequest }: ProductionChatViewPr
     const stageToStatus = {
       "ai-answer": STATUS.thinking,
       agent3: STATUS.investigating,
+      agent6: STATUS.findingSources,
       agent4: STATUS.gathering,
       agent5: STATUS.aligning,
     } as const;
@@ -142,6 +148,7 @@ export function ProductionChatView({ sourcePolicyRequest }: ProductionChatViewPr
     setProofBusy(true);
     const stageToStatus = {
       agent3: STATUS.investigating,
+      agent6: STATUS.findingSources,
       agent4: STATUS.gathering,
       agent5: STATUS.aligning,
     } as const;

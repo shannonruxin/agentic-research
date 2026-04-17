@@ -93,6 +93,32 @@ export const setTop3 = mutation({
   },
 });
 
+export const setEvidenceSegments = mutation({
+  args: {
+    run_id: v.id("pipeline_runs"),
+    evidence_segments: v.array(v.any()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.run_id, {
+      evidence_segments: args.evidence_segments,
+      updated_at: Date.now(),
+    });
+  },
+});
+
+export const setAgent3Plan = mutation({
+  args: {
+    run_id: v.id("pipeline_runs"),
+    agent3_plan: v.any(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.run_id, {
+      agent3_plan: args.agent3_plan,
+      updated_at: Date.now(),
+    });
+  },
+});
+
 export const setError = mutation({
   args: {
     run_id: v.id("pipeline_runs"),

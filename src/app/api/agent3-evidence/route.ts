@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
   Agent3EvidenceModelError,
+  Agent6SearchError,
   generateAgent3EvidencePlan,
 } from "@/lib/agents/agent3Evidence";
 import {
@@ -119,7 +120,7 @@ export async function POST(req: Request) {
     });
     return NextResponse.json(result);
   } catch (e) {
-    if (e instanceof Agent3EvidenceModelError) {
+    if (e instanceof Agent3EvidenceModelError || e instanceof Agent6SearchError) {
       return NextResponse.json({ error: e.message }, { status: 502 });
     }
     const message = e instanceof Error ? e.message : "Agent 3 evidence plan failed";

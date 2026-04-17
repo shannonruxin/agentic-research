@@ -3,6 +3,7 @@ import type {
   Agent3EvidencePlan,
   AIAnswerOutput,
   CroppedEvidenceItem,
+  EvidenceSegment,
   ExtractBundle,
   QueryDecomposition,
   SearchQueries,
@@ -31,7 +32,7 @@ export type FullVerificationInput = {
   query: string;
   /** Optional: Agent 1 decomposition for **`/api/ai-answer`** alignment. */
   decompositionForAiAnswer?: QueryDecomposition | null;
-  /** Optional: decomposition for **`/api/agent3-evidence`** (e.g. Agent 2 JSON). */
+  /** Optional: decomposition for **`/api/agent3-segments`** / **`/api/agent6-search`** (e.g. Agent 2 JSON). */
   decompositionForAgent3?: QueryDecomposition | null;
   /** Optional: Agent 2 **`SearchQueries`** for Agent 3. */
   searchQueries?: SearchQueries | null;
@@ -39,7 +40,7 @@ export type FullVerificationInput = {
   sourcePolicy?: ParallelSourcePolicyRequest | null;
 };
 
-export type FullVerificationStage = "ai-answer" | "agent3" | "agent4" | "agent5";
+export type FullVerificationStage = "ai-answer" | "agent3" | "agent6" | "agent4" | "agent5";
 
 export type FullVerificationHooks = {
   onStartStage?: (stage: FullVerificationStage) => void;
@@ -107,18 +108,17 @@ export async function runFullVerificationClient(
   hooks?.onAiAnswerReady?.(ai);
 
   const sq = searchQueries && Object.keys(searchQueries).length > 0 ? searchQueries : undefined;
+  let evidence_segments: EvidenceSegment[];
   let plan: Agent3EvidencePlan;
 
   hooks?.onStartStage?.("agent3");
   try {
-    const res = await fetch("/api/agent3-evidence", {
+    const res = await fetch("/api/agent3-segments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         aiAnswer: ai,
         ...(decompositionForAgent3 ? { decomposition: decompositionForAgent3 } : {}),
-        ...(sq ? { searchQueries: sq } : {}),
-        ...(sourcePolicy && Object.keys(sourcePolicy).length > 0 ? { sourcePolicy } : {}),
       }),
     });
     const data: unknown = await res.json().catch(() => ({}));
@@ -131,12 +131,62 @@ export async function runFullVerificationClient(
         ai,
       };
     }
-    plan = data as Agent3EvidencePlan;
+    const segPayload = data as { evidence_segments?: EvidenceSegment[] };
+    if (!segPayload.evidence_segments) {
+      hooks?.onEndStage?.("agent3");
+      return {
+        ok: false,
+        stage: "agent3",
+        error: "Invalid agent3-segments response",
+        ai,
+      };
+    }
+    evidence_segments = segPayload.evidence_segments;
   } catch {
     hooks?.onEndStage?.("agent3");
     return { ok: false, stage: "agent3", error: "Network error", network: true, ai };
   }
   hooks?.onEndStage?.("agent3");
+
+  hooks?.onStartStage?.("agent6");
+  try {
+    const res = await fetch("/api/agent6-search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        aiAnswer: ai,
+        evidence_segments,
+        ...(decompositionForAgent3 ? { decomposition: decompositionForAgent3 } : {}),
+        ...(sq ? { searchQueries: sq } : {}),
+        ...(sourcePolicy && Object.keys(sourcePolicy).length > 0 ? { sourcePolicy } : {}),
+      }),
+    });
+    const data: unknown = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      hooks?.onEndStage?.("agent6");
+      return {
+        ok: false,
+        stage: "agent6",
+        error: apiErrorMessage(data, `Request failed (${res.status})`),
+        ai,
+      };
+    }
+    const resPayload = data as { resources?: Agent3EvidencePlan["resources"] };
+    if (!resPayload.resources) {
+      hooks?.onEndStage?.("agent6");
+      return {
+        ok: false,
+        stage: "agent6",
+        error: "Invalid agent6-search response",
+        ai,
+      };
+    }
+    plan = { evidence_segments, resources: resPayload.resources };
+  } catch {
+    hooks?.onEndStage?.("agent6");
+    return { ok: false, stage: "agent6", error: "Network error", network: true, ai };
+  }
+  hooks?.onEndStage?.("agent6");
 
   let bundle: ExtractBundle;
 
@@ -232,18 +282,17 @@ export async function runAgent345VerificationClient(
   const { decompositionForAgent3, searchQueries, sourcePolicy } = options;
   const sq = searchQueries && Object.keys(searchQueries).length > 0 ? searchQueries : undefined;
 
+  let evidence_segments: EvidenceSegment[];
   let plan: Agent3EvidencePlan;
 
   hooks?.onStartStage?.("agent3");
   try {
-    const res = await fetch("/api/agent3-evidence", {
+    const res = await fetch("/api/agent3-segments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         aiAnswer: ai,
         ...(decompositionForAgent3 ? { decomposition: decompositionForAgent3 } : {}),
-        ...(sq ? { searchQueries: sq } : {}),
-        ...(sourcePolicy && Object.keys(sourcePolicy).length > 0 ? { sourcePolicy } : {}),
       }),
     });
     const data: unknown = await res.json().catch(() => ({}));
@@ -255,12 +304,51 @@ export async function runAgent345VerificationClient(
         error: apiErrorMessage(data, `Request failed (${res.status})`),
       };
     }
-    plan = data as Agent3EvidencePlan;
+    const segPayload = data as { evidence_segments?: EvidenceSegment[] };
+    if (!segPayload.evidence_segments) {
+      hooks?.onEndStage?.("agent3");
+      return { ok: false, stage: "agent3", error: "Invalid agent3-segments response" };
+    }
+    evidence_segments = segPayload.evidence_segments;
   } catch {
     hooks?.onEndStage?.("agent3");
     return { ok: false, stage: "agent3", error: "Network error", network: true };
   }
   hooks?.onEndStage?.("agent3");
+
+  hooks?.onStartStage?.("agent6");
+  try {
+    const res = await fetch("/api/agent6-search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        aiAnswer: ai,
+        evidence_segments,
+        ...(decompositionForAgent3 ? { decomposition: decompositionForAgent3 } : {}),
+        ...(sq ? { searchQueries: sq } : {}),
+        ...(sourcePolicy && Object.keys(sourcePolicy).length > 0 ? { sourcePolicy } : {}),
+      }),
+    });
+    const data: unknown = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      hooks?.onEndStage?.("agent6");
+      return {
+        ok: false,
+        stage: "agent6",
+        error: apiErrorMessage(data, `Request failed (${res.status})`),
+      };
+    }
+    const resPayload = data as { resources?: Agent3EvidencePlan["resources"] };
+    if (!resPayload.resources) {
+      hooks?.onEndStage?.("agent6");
+      return { ok: false, stage: "agent6", error: "Invalid agent6-search response" };
+    }
+    plan = { evidence_segments, resources: resPayload.resources };
+  } catch {
+    hooks?.onEndStage?.("agent6");
+    return { ok: false, stage: "agent6", error: "Network error", network: true };
+  }
+  hooks?.onEndStage?.("agent6");
 
   let bundle: ExtractBundle;
 

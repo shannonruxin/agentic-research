@@ -3,7 +3,8 @@
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { CopyOutputButton } from "@/components/CopyOutputButton";
-import { Agent3EvidenceSandbox } from "@/components/Agent3EvidenceSandbox";
+import { Agent3SegmentSandbox } from "@/components/Agent3SegmentSandbox";
+import { Agent6SearchSandbox } from "@/components/Agent6SearchSandbox";
 import { Agent4ExtractSandbox } from "@/components/Agent4ExtractSandbox";
 import { Agent5CropSandbox } from "@/components/Agent5CropSandbox";
 import { AIAnswerSandbox } from "@/components/AIAnswerSandbox";
@@ -17,8 +18,10 @@ import {
 import type { ParallelSourcePolicyRequest } from "@/lib/parallelSourcePolicy";
 import type {
   Agent3EvidencePlan,
+  Agent3ResourceRow,
   AIAnswerOutput,
   CroppedEvidenceItem,
+  EvidenceSegment,
   ExtractBundle,
   QueryDecomposition,
   SearchQueries,
@@ -64,6 +67,10 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
 
   const [agent3Loading, setAgent3Loading] = useState(false);
   const [agent3Error, setAgent3Error] = useState<string | null>(null);
+  const [agent6Loading, setAgent6Loading] = useState(false);
+  const [agent6Error, setAgent6Error] = useState<string | null>(null);
+  const [evidenceSegments, setEvidenceSegments] = useState<EvidenceSegment[] | null>(null);
+  const [agent6Resources, setAgent6Resources] = useState<Agent3ResourceRow[] | null>(null);
   const [agent3Output, setAgent3Output] = useState<Agent3EvidencePlan | null>(null);
   const [agent3CustomAnswerText, setAgent3CustomAnswerText] = useState("");
   /** `aiAnswer` body that produced the current Agent 3 plan (for Agent 4/5). */
@@ -98,6 +105,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
   const sandboxPipelineBusy =
     aiAnswerLoading ||
     agent3Loading ||
+    agent6Loading ||
     extractLoading ||
     agent5Loading ||
     fullVerificationRunning ||
@@ -133,6 +141,10 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
     setAiAnswerOutput(null);
     setAgent3Loading(false);
     setAgent3Error(null);
+    setAgent6Loading(false);
+    setAgent6Error(null);
+    setEvidenceSegments(null);
+    setAgent6Resources(null);
     setAgent3Output(null);
     setExtractBundle(null);
     setExtractLoading(false);
@@ -151,9 +163,12 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
   function clearVerificationScope() {
     setVerificationTargetAnswer(null);
     setAgent3Output(null);
+    setEvidenceSegments(null);
+    setAgent6Resources(null);
     setExtractBundle(null);
     setAgent5Items(null);
     setAgent3Error(null);
+    setAgent6Error(null);
     setExtractError(null);
     setAgent5Error(null);
     setAgent345ContextAnswer(null);
@@ -166,10 +181,13 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
     setProofSelectionError(null);
     setVerificationTargetAnswer(synthetic);
     setAgent3Error(null);
+    setAgent6Error(null);
     setExtractError(null);
     setAgent5Error(null);
     setAgent345ContextAnswer(null);
     setAgent3Output(null);
+    setEvidenceSegments(null);
+    setAgent6Resources(null);
     setExtractBundle(null);
     setAgent5Items(null);
     setProofVerificationRunning(true);
@@ -184,11 +202,13 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
         {
           onStartStage: (stage) => {
             if (stage === "agent3") setAgent3Loading(true);
+            if (stage === "agent6") setAgent6Loading(true);
             if (stage === "agent4") setExtractLoading(true);
             if (stage === "agent5") setAgent5Loading(true);
           },
           onEndStage: (stage) => {
             if (stage === "agent3") setAgent3Loading(false);
+            if (stage === "agent6") setAgent6Loading(false);
             if (stage === "agent4") setExtractLoading(false);
             if (stage === "agent5") setAgent5Loading(false);
           },
@@ -196,11 +216,14 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
       );
       if (!result.ok) {
         if (result.stage === "agent3") setAgent3Error(result.error);
+        if (result.stage === "agent6") setAgent6Error(result.error);
         if (result.stage === "agent4") setExtractError(result.error);
         if (result.stage === "agent5") setAgent5Error(result.error);
         return;
       }
       setAgent3Output(result.plan);
+      setEvidenceSegments(result.plan.evidence_segments);
+      setAgent6Resources(result.plan.resources);
       setExtractBundle(result.bundle);
       setAgent5Items(result.items);
       setAgent345ContextAnswer(synthetic);
@@ -452,10 +475,13 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
     setFullVerificationRunning(true);
     setAiAnswerError(null);
     setAgent3Error(null);
+    setAgent6Error(null);
     setExtractError(null);
     setAgent5Error(null);
     setAiAnswerOutput(null);
     setAgent3Output(null);
+    setEvidenceSegments(null);
+    setAgent6Resources(null);
     setExtractBundle(null);
     setAgent5Items(null);
     setAgent345ContextAnswer(null);
@@ -473,12 +499,14 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
           onStartStage: (stage) => {
             if (stage === "ai-answer") setAiAnswerLoading(true);
             if (stage === "agent3") setAgent3Loading(true);
+            if (stage === "agent6") setAgent6Loading(true);
             if (stage === "agent4") setExtractLoading(true);
             if (stage === "agent5") setAgent5Loading(true);
           },
           onEndStage: (stage) => {
             if (stage === "ai-answer") setAiAnswerLoading(false);
             if (stage === "agent3") setAgent3Loading(false);
+            if (stage === "agent6") setAgent6Loading(false);
             if (stage === "agent4") setExtractLoading(false);
             if (stage === "agent5") setAgent5Loading(false);
           },
@@ -488,11 +516,16 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
 
       if (!result.ok) {
         if (result.ai) setAiAnswerOutput(result.ai);
-        if (result.plan) setAgent3Output(result.plan);
+        if (result.plan) {
+          setAgent3Output(result.plan);
+          setEvidenceSegments(result.plan.evidence_segments);
+          setAgent6Resources(result.plan.resources);
+        }
         if (result.bundle) setExtractBundle(result.bundle);
         if (result.ai && result.plan) setAgent345ContextAnswer(result.ai);
         if (result.stage === "ai-answer") setAiAnswerError(result.error);
         if (result.stage === "agent3") setAgent3Error(result.error);
+        if (result.stage === "agent6") setAgent6Error(result.error);
         if (result.stage === "agent4") setExtractError(result.error);
         if (result.stage === "agent5") setAgent5Error(result.error);
         return;
@@ -500,6 +533,8 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
 
       setAiAnswerOutput(result.ai);
       setAgent3Output(result.plan);
+      setEvidenceSegments(result.plan.evidence_segments);
+      setAgent6Resources(result.plan.resources);
       setExtractBundle(result.bundle);
       setAgent5Items(result.items);
       setAgent345ContextAnswer(result.ai);
@@ -547,7 +582,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
     }
   }
 
-  async function runAgent3Evidence() {
+  async function runAgent3SegmentsOnly() {
     if (agent3Loading) {
       return;
     }
@@ -557,22 +592,83 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
       return;
     }
     const decomp = getDecompositionForAgent3();
-    const sq = searchQueries && Object.keys(searchQueries).length > 0 ? searchQueries : undefined;
 
     setAgent3Loading(true);
     setAgent3Error(null);
     setAgent345ContextAnswer(null);
+    setEvidenceSegments(null);
+    setAgent6Resources(null);
+    setAgent6Error(null);
     setAgent3Output(null);
     setExtractBundle(null);
     setExtractError(null);
     setAgent5Items(null);
     setAgent5Error(null);
     try {
-      const res = await fetch("/api/agent3-evidence", {
+      const res = await fetch("/api/agent3-segments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           aiAnswer: aiInput,
+          ...(decomp ? { decomposition: decomp } : {}),
+        }),
+      });
+      const data: unknown = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err =
+          typeof data === "object" &&
+          data !== null &&
+          "error" in data &&
+          typeof (data as { error: unknown }).error === "string"
+            ? (data as { error: string }).error
+            : `Request failed (${res.status})`;
+        setAgent3Error(err);
+        return;
+      }
+      const payload = data as { evidence_segments?: EvidenceSegment[] };
+      if (!payload.evidence_segments) {
+        setAgent3Error("Invalid response from agent3-segments");
+        return;
+      }
+      setEvidenceSegments(payload.evidence_segments);
+      setAgent345ContextAnswer(aiInput);
+    } catch {
+      setAgent3Error("Network error");
+    } finally {
+      setAgent3Loading(false);
+    }
+  }
+
+  async function runAgent6SearchOnly() {
+    if (agent6Loading) {
+      return;
+    }
+    const aiInput = agent345ContextAnswer ?? getAiAnswerForManualAgent3();
+    if (!aiInput) {
+      setAgent6Error("Run Agent 3 (segments) first, or ensure AIAnswer / answer text is available.");
+      return;
+    }
+    if (!evidenceSegments?.length) {
+      setAgent6Error("Run Agent 3 (segments) first to produce evidence_segments.");
+      return;
+    }
+    const decomp = getDecompositionForAgent3();
+    const sq = searchQueries && Object.keys(searchQueries).length > 0 ? searchQueries : undefined;
+
+    setAgent6Loading(true);
+    setAgent6Error(null);
+    setAgent3Output(null);
+    setExtractBundle(null);
+    setExtractError(null);
+    setAgent5Items(null);
+    setAgent5Error(null);
+    try {
+      const res = await fetch("/api/agent6-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          aiAnswer: aiInput,
+          evidence_segments: evidenceSegments,
           ...(decomp ? { decomposition: decomp } : {}),
           ...(sq ? { searchQueries: sq } : {}),
           ...(sourcePolicyRequest && Object.keys(sourcePolicyRequest).length > 0
@@ -589,15 +685,24 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
           typeof (data as { error: unknown }).error === "string"
             ? (data as { error: string }).error
             : `Request failed (${res.status})`;
-        setAgent3Error(err);
+        setAgent6Error(err);
         return;
       }
-      setAgent3Output(data as Agent3EvidencePlan);
+      const payload = data as { resources?: Agent3ResourceRow[] };
+      if (!payload.resources) {
+        setAgent6Error("Invalid response from agent6-search");
+        return;
+      }
+      setAgent6Resources(payload.resources);
+      setAgent3Output({
+        evidence_segments: evidenceSegments,
+        resources: payload.resources,
+      });
       setAgent345ContextAnswer(aiInput);
     } catch {
-      setAgent3Error("Network error");
+      setAgent6Error("Network error");
     } finally {
-      setAgent3Loading(false);
+      setAgent6Loading(false);
     }
   }
 
@@ -750,7 +855,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
         </p>
       ) : null}
 
-      <Agent3EvidenceSandbox
+      <Agent3SegmentSandbox
         hasPipelineAIAnswer={verificationAiAnswer !== null}
         customAnswerText={agent3CustomAnswerText}
         onCustomAnswerTextChange={setAgent3CustomAnswerText}
@@ -759,14 +864,24 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
             setAgent3CustomAnswerText(verificationAiAnswer.answer_text);
           }
         }}
-        canRunAgent3={getAiAnswerForManualAgent3() !== null}
+        canRun={getAiAnswerForManualAgent3() !== null}
         hasDecomposition={decompositionForAgent3 !== null}
         decompositionSource={decompositionSourceForAgent3}
-        hasSearchQueries={searchQueries !== null}
-        onRun={runAgent3Evidence}
+        onRun={runAgent3SegmentsOnly}
         loading={agent3Loading}
         error={agent3Error}
-        output={agent3Output}
+        segments={evidenceSegments}
+      />
+
+      <Agent6SearchSandbox
+        hasSegments={Boolean(evidenceSegments && evidenceSegments.length > 0)}
+        segmentCount={evidenceSegments?.length ?? 0}
+        hasSearchQueries={searchQueries !== null}
+        onRun={runAgent6SearchOnly}
+        loading={agent6Loading}
+        error={agent6Error}
+        composedPlan={agent3Output}
+        resourcesOnly={agent6Resources}
       />
 
       <Agent4ExtractSandbox

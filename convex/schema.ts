@@ -18,6 +18,8 @@ export default defineSchema({
     search_queries: v.optional(v.any()),
     evidence_pool: v.optional(v.array(v.any())),
     top3: v.optional(v.array(v.any())),
+    evidence_segments: v.optional(v.array(v.any())),
+    agent3_plan: v.optional(v.any()),
     error: v.optional(v.string()),
     created_at: v.number(),
     updated_at: v.number(),

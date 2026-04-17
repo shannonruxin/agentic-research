@@ -92,8 +92,9 @@ export interface CroppedEvidenceItem {
 
 /** Full target pipeline API response (dual-column UI) */
 export interface PipelineDualColumnResponse {
+  /** User or decomposition **`core_query`**; same as request `query` when decomposition omitted. */
   core_query: string;
-  decomposition: QueryDecomposition;
+  decomposition?: QueryDecomposition;
   ai_answer: AIAnswerOutput;
   agent3_plan: Agent3EvidencePlan;
   evidence_items: CroppedEvidenceItem[];
