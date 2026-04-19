@@ -26,6 +26,8 @@ export type AIAnswerSandboxProps = {
   onProofSelectionInvalid?: (message: string) => void;
   proofVerificationRunning?: boolean;
   proofSelectionError?: string | null;
+  /** When true, omit outer section border (e.g. nested under Archive). */
+  embedded?: boolean;
 };
 
 /**
@@ -48,9 +50,13 @@ export function AIAnswerSandbox({
   onProofSelectionInvalid,
   proofVerificationRunning = false,
   proofSelectionError,
+  embedded = false,
 }: AIAnswerSandboxProps) {
   return (
-    <section aria-labelledby="ai-answer-heading" className="shrink-0 space-y-2 border-b border-zinc-200 pb-6">
+    <section
+      aria-labelledby="ai-answer-heading"
+      className={`shrink-0 space-y-2 ${embedded ? "" : "border-b border-zinc-200 pb-6"}`}
+    >
       <h2 id="ai-answer-heading" className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
         AIAnswer (pipeline)
       </h2>

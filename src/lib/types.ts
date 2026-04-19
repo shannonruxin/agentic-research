@@ -157,3 +157,70 @@ export interface Top3Result {
   results: EvidenceResult[]; // 0–3 items
   pipeline_run_id: string;
 }
+
+// --- Agent 7 — orchestrator / judge ---
+
+export interface Agent7Confidence {
+  level: "low" | "medium" | "high";
+  rationale?: string;
+}
+
+/** Sub-topic lens for the objective (e.g. market size, competitors, technology). */
+export interface Agent7Dimension {
+  label: string;
+  description?: string;
+}
+
+/** Missing info / evidence before a solid answer — often per-dimension; omit dimension for objective-level scope gaps. */
+export interface Agent7KnownGapGroup {
+  /** e.g. "Market size"; omit or use "Objective / scope" for pre-dimension gaps (company name, industry, etc.). */
+  dimension?: string;
+  gaps: string[];
+}
+
+export type Agent7Assignee = "agent3_agent6" | "agent4_agent5" | "agent8";
+
+/** Full research task handed to Agent 3+6 (design-phase2 task schema). */
+export interface Agent7ResearchTask {
+  task_id: string;
+  dimension: string;
+  factor: string;
+  goal: string;
+  context?: Record<string, unknown>;
+  method_instructions?: string[];
+  variables_to_find?: string[];
+  calculation_logic?: string;
+  search_guidance?: string[];
+  validation_criteria?: string[];
+  adaptation_signals?: string[];
+  fallback_methods?: string[];
+  success_criteria?: string[];
+  priority: "high" | "medium" | "low";
+  expected_output_format?: string[];
+}
+
+export interface Agent7Assignment {
+  assignee: Agent7Assignee;
+  /** Why this assignee / how it fits the plan. */
+  summary?: string;
+  research_task?: Agent7ResearchTask;
+  /** Short brief for verbatim extract+crop when assignee is agent4_agent5. */
+  verbatim_brief?: string;
+  /** Instructions for Agent 8 memory merge when assignee is agent8. */
+  memory_directive?: string;
+}
+
+/** Result of one Agent 7 orchestration step (may be iterated with prior key_findings). */
+export interface Agent7OrchestrateResult {
+  objective_understanding: string;
+  /** Sub-considerations Agent 7 uses to structure the topic. */
+  dimensions: Agent7Dimension[];
+  key_findings: Record<string, unknown>;
+  /** Grouped known gaps — includes first-turn “need more info” under dimensions or objective scope. */
+  known_gaps: Agent7KnownGapGroup[];
+  confidence: Agent7Confidence;
+  /** Orchestrator reasoning trace for review. */
+  train_of_thought: string;
+  /** Concrete handoffs: who does what next (dispatch not executed in sandbox). */
+  assignments: Agent7Assignment[];
+}

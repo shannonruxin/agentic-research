@@ -92,7 +92,7 @@ const queryDecompositionResultSchema = z
   });
 
 /**
- * System instructions for Agent 1 — Query Decomposition (also documented in `specs/design.md`).
+ * System instructions for Agent 1 — Query Decomposition (also documented in `specs/design-phase1.md`).
  * The model fills the schema via `generateObject`; the app owns JSON serialization (see `/api/decompose`).
  */
 export const QUERY_DECOMPOSITION_SYSTEM_PROMPT = `You are a Query Decomposition Agent.

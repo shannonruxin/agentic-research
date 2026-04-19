@@ -7,6 +7,7 @@ import { Agent3SegmentSandbox } from "@/components/Agent3SegmentSandbox";
 import { Agent6SearchSandbox } from "@/components/Agent6SearchSandbox";
 import { Agent4ExtractSandbox } from "@/components/Agent4ExtractSandbox";
 import { Agent5CropSandbox } from "@/components/Agent5CropSandbox";
+import { Agent7Sandbox } from "@/components/Agent7Sandbox";
 import { AIAnswerSandbox } from "@/components/AIAnswerSandbox";
 import { ParallelExtractSandbox } from "@/components/ParallelExtractSandbox";
 import { ParallelSearchSandbox } from "@/components/ParallelSearchSandbox";
@@ -60,6 +61,8 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
   const [researchError, setResearchError] = useState<string | null>(null);
   const [searchQueries, setSearchQueries] = useState<SearchQueries | null>(null);
 
+  const [agent7Goal, setAgent7Goal] = useState("");
+  const [archiveAiaAnswerOpen, setArchiveAiaAnswerOpen] = useState(false);
   const [aiAnswerTopic, setAiAnswerTopic] = useState("");
   const [aiAnswerLoading, setAiAnswerLoading] = useState(false);
   const [aiAnswerError, setAiAnswerError] = useState<string | null>(null);
@@ -135,6 +138,8 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
     setParallelLoading(false);
     setParallelError(null);
     setParallelResultJson(null);
+    setAgent7Goal("");
+    setArchiveAiaAnswerOpen(false);
     setAiAnswerTopic("");
     setAiAnswerLoading(false);
     setAiAnswerError(null);
@@ -823,24 +828,52 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
         </button>
       </header>
 
-      <AIAnswerSandbox
-        topic={aiAnswerTopic}
-        onTopicChange={setAiAnswerTopic}
-        decomposition={decomposition}
-        onUseAgent1CoreQuery={useAgent1CoreQueryInAiAnswer}
-        onRun={runAiAnswer}
-        onRunFullVerification={runAiAnswerAndVerification}
-        pipelineBusy={sandboxPipelineBusy}
-        loading={aiAnswerLoading}
-        fullVerificationRunning={fullVerificationRunning}
-        error={aiAnswerError}
-        output={aiAnswerOutput}
-        canUseAgent1={decomposition !== null}
-        onProofSelection={(s) => void runProofOnSelection(s)}
-        onProofSelectionInvalid={setProofSelectionError}
-        proofVerificationRunning={proofVerificationRunning}
-        proofSelectionError={proofSelectionError}
-      />
+      <Agent7Sandbox goal={agent7Goal} onGoalChange={setAgent7Goal} pipelineBusy={sandboxPipelineBusy} />
+
+      <section className="shrink-0 space-y-2 border-b border-zinc-200 pb-6">
+        <button
+          type="button"
+          id="archive-aia-heading"
+          className="flex w-full items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-left transition-colors hover:bg-zinc-100"
+          aria-expanded={archiveAiaAnswerOpen}
+          aria-controls="archive-aia-panel"
+          onClick={() => setArchiveAiaAnswerOpen((o) => !o)}
+        >
+          <span>
+            <span className="block text-sm font-semibold text-zinc-900">Archive — AIAnswer</span>
+            <span className="mt-0.5 block text-xs font-normal text-zinc-500">
+              Legacy direct answer + verification entry; click to {archiveAiaAnswerOpen ? "collapse" : "expand"}
+            </span>
+          </span>
+          <ChevronDown
+            className={`size-5 shrink-0 text-zinc-600 transition-transform ${archiveAiaAnswerOpen ? "rotate-180" : ""}`}
+            aria-hidden
+          />
+        </button>
+        {archiveAiaAnswerOpen ? (
+          <div id="archive-aia-panel" role="region" aria-labelledby="archive-aia-heading" className="pt-2">
+            <AIAnswerSandbox
+              embedded
+              topic={aiAnswerTopic}
+              onTopicChange={setAiAnswerTopic}
+              decomposition={decomposition}
+              onUseAgent1CoreQuery={useAgent1CoreQueryInAiAnswer}
+              onRun={runAiAnswer}
+              onRunFullVerification={runAiAnswerAndVerification}
+              pipelineBusy={sandboxPipelineBusy}
+              loading={aiAnswerLoading}
+              fullVerificationRunning={fullVerificationRunning}
+              error={aiAnswerError}
+              output={aiAnswerOutput}
+              canUseAgent1={decomposition !== null}
+              onProofSelection={(s) => void runProofOnSelection(s)}
+              onProofSelectionInvalid={setProofSelectionError}
+              proofVerificationRunning={proofVerificationRunning}
+              proofSelectionError={proofSelectionError}
+            />
+          </div>
+        ) : null}
+      </section>
 
       {verificationTargetAnswer ? (
         <p className="-mt-2 text-xs text-violet-900/90">
