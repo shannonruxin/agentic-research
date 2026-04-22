@@ -7,6 +7,7 @@ import { Agent3SegmentSandbox } from "@/components/Agent3SegmentSandbox";
 import { Agent6SearchSandbox } from "@/components/Agent6SearchSandbox";
 import { Agent4ExtractSandbox } from "@/components/Agent4ExtractSandbox";
 import { Agent5CropSandbox } from "@/components/Agent5CropSandbox";
+import { Agent36ResearchTaskSandbox } from "@/components/Agent36ResearchTaskSandbox";
 import { Agent7Sandbox } from "@/components/Agent7Sandbox";
 import { AIAnswerSandbox } from "@/components/AIAnswerSandbox";
 import { ParallelExtractSandbox } from "@/components/ParallelExtractSandbox";
@@ -62,6 +63,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
   const [searchQueries, setSearchQueries] = useState<SearchQueries | null>(null);
 
   const [agent7Goal, setAgent7Goal] = useState("");
+  const [sandboxResetNonce, setSandboxResetNonce] = useState(0);
   const [archiveAiaAnswerOpen, setArchiveAiaAnswerOpen] = useState(false);
   const [aiAnswerTopic, setAiAnswerTopic] = useState("");
   const [aiAnswerLoading, setAiAnswerLoading] = useState(false);
@@ -163,6 +165,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
     setProofSelectionError(null);
     setAgent3CustomAnswerText("");
     setAgent345ContextAnswer(null);
+    setSandboxResetNonce((n) => n + 1);
   }
 
   function clearVerificationScope() {
@@ -829,6 +832,8 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
       </header>
 
       <Agent7Sandbox goal={agent7Goal} onGoalChange={setAgent7Goal} pipelineBusy={sandboxPipelineBusy} />
+
+      <Agent36ResearchTaskSandbox key={sandboxResetNonce} pipelineBusy={sandboxPipelineBusy} />
 
       <section className="shrink-0 space-y-2 border-b border-zinc-200 pb-6">
         <button

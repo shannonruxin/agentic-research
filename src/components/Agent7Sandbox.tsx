@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { CopyOutputButton } from "@/components/CopyOutputButton";
 import { AGENT7_SPEC_CHEATSHEET } from "@/lib/agent7SpecCheatsheet";
 import type {
   Agent7Dimension,
@@ -276,14 +277,19 @@ export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false }: Agen
         for iteration.
       </p>
 
-      <details className="rounded-md border border-zinc-200 bg-zinc-50 text-xs text-zinc-700">
-        <summary className="cursor-pointer select-none px-3 py-2 font-medium text-zinc-600">
-          Field definitions (spec cheatsheet)
-        </summary>
-        <pre className="max-h-64 overflow-auto whitespace-pre-wrap border-t border-zinc-200 bg-white px-3 py-2 font-mono text-[11px] text-zinc-800">
-          {AGENT7_SPEC_CHEATSHEET}
-        </pre>
-      </details>
+      <div className="flex flex-wrap items-start justify-end gap-2 rounded-md border border-zinc-200 bg-zinc-50 text-xs text-zinc-700">
+        <details className="min-w-0 flex-1">
+          <summary className="cursor-pointer select-none px-3 py-2 font-medium text-zinc-600">
+            Field definitions (spec cheatsheet)
+          </summary>
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap border-t border-zinc-200 bg-white px-3 py-2 font-mono text-[11px] text-zinc-800">
+            {AGENT7_SPEC_CHEATSHEET}
+          </pre>
+        </details>
+        <div className="shrink-0 p-1.5">
+          <CopyOutputButton text={AGENT7_SPEC_CHEATSHEET} label="Copy cheatsheet" className="!bg-zinc-800 hover:!bg-zinc-900" />
+        </div>
+      </div>
 
       <label className="block text-xs font-medium text-zinc-600" htmlFor="agent7-domain">
         domain_manual (JSON object)
@@ -392,6 +398,13 @@ export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false }: Agen
 
       {lastResult && (
         <div className="space-y-3 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-semibold text-zinc-800">Output</span>
+            <CopyOutputButton
+              text={JSON.stringify(lastResult, null, 2)}
+              label="Copy JSON"
+            />
+          </div>
           <div>
             <div className="font-semibold text-zinc-600">objective_understanding</div>
             <p className="mt-1 whitespace-pre-wrap">{lastResult.objective_understanding}</p>

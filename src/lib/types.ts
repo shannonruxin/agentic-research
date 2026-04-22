@@ -224,3 +224,105 @@ export interface Agent7OrchestrateResult {
   /** Concrete handoffs: who does what next (dispatch not executed in sandbox). */
   assignments: Agent7Assignment[];
 }
+
+// --- Phase 2 — Agent 6 / Agent 3 research task execution (design-phase2) ---
+
+/** Input to Phase 2 research-task runners; same shape as **`assignments[].research_task`**. */
+export type ResearchTaskInput = Agent7ResearchTask;
+
+/** One mapped datum from web search → **`variables_to_find`** (Agent 6 Phase 2). */
+export interface ExtractedKeyDatum {
+  variable: string;
+  status: "found" | "partial" | "not_found";
+  value_summary: string;
+  supporting_snippet?: string;
+  /** Must be one of the URLs returned by search for this run (enforced server-side when possible). */
+  source_url?: string;
+}
+
+/** Structured result of one Agent 6 Phase 2 pass over a **`research_task`**. */
+export interface Agent6ResearchRunResult {
+  queries_used: string[];
+  source_urls: string[];
+  extracted_key_data: ExtractedKeyDatum[];
+  parallel_search_id?: string | null;
+}
+
+export interface Agent3TaskAssumption {
+  name: string;
+  type: "data_backed" | "benchmark_based" | "speculative";
+  justification?: string;
+  source?: string;
+  risk_level: "low" | "medium" | "high";
+}
+
+/** Task-level confidence breakdown (design-phase2 § Confidence — Agent 3). */
+export interface Agent3TaskConfidence {
+  score: number;
+  breakdown: {
+    data_quality: number;
+    source_agreement: number;
+    assumption_strength: number;
+    method_fit: number;
+    coverage_completeness: number;
+  };
+  reasoning: string[];
+}
+
+export interface Agent3TaskSourceRow {
+  url: string;
+  relevance: string;
+  data_noted: string;
+}
+
+/** Agent 3 Phase 2 — one research task conclusion for Agent 7. */
+export interface Agent3TaskResult {
+  sources_and_data: Agent3TaskSourceRow[];
+  analysis_points: string[];
+  summary: string;
+  task_gaps: string[];
+  assumptions: Agent3TaskAssumption[];
+  confidence: Agent3TaskConfidence;
+  /** When true, orchestration may schedule another plan → Agent 6 → review round. */
+  needs_further_search?: boolean;
+  suggested_queries?: string[];
+}
+
+/**
+ * Agent 3 → Agent 6 handoff for one search+extract pass (Phase 2).
+ * Produced by Agent 3 **plan** step before any web search.
+ */
+export interface Agent6AssignmentFromAgent3 {
+  /** Natural-language objective for Parallel beta.search. */
+  search_objective: string;
+  /** Keyword / query strings for beta.search. */
+  search_queries: string[];
+  /** Optional notes for the extraction LLM (variables emphasis, hygiene). */
+  extraction_notes?: string;
+}
+
+/** Agent 3 Phase 2 — planning step after Agent 7 assigns a research_task. */
+export interface Agent3ResearchPlan {
+  plan_summary: string;
+  agent6_assignment: Agent6AssignmentFromAgent3;
+  open_questions?: string[];
+}
+
+/** One full plan → search → review cycle inside the A3↔A6 loop. */
+export interface Agent36LoopIterationTrace {
+  agent3_plan: Agent3ResearchPlan;
+  agent6_result: Agent6ResearchRunResult;
+  agent3_review: Agent3TaskResult;
+}
+
+/** Loop API: final Agent 3 **review** plus traces (Agent 7 → A3 plan → A6 → A3 review, iterate). */
+export interface Agent36ResearchLoopResponse {
+  final_agent3_result: Agent3TaskResult;
+  /** One plan per iteration (before each Agent 6 run). */
+  agent3_plans: Agent3ResearchPlan[];
+  agent6_runs: Agent6ResearchRunResult[];
+  /** Ordered rounds: plan, then Agent 6 output, then review. */
+  iteration_trace: Agent36LoopIterationTrace[];
+  iterations: number;
+  stopped_reason: "sufficient" | "max_iterations";
+}
