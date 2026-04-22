@@ -13,6 +13,8 @@ const bodySchema = z.object({
   domain_manual: jsonObjectSchema.optional(),
   research_hygiene: jsonObjectSchema.optional(),
   max_iterations: z.number().int().min(1).max(HARD_CAP_AGENT36_ITERATIONS).optional(),
+  /** 0–1; optional floor on review `confidence.score` to end early. */
+  min_confidence: z.number().min(0).max(1).optional(),
 });
 
 export const maxDuration = 600;

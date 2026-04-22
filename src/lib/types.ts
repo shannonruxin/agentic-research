@@ -324,5 +324,7 @@ export interface Agent36ResearchLoopResponse {
   /** Ordered rounds: plan, then Agent 6 output, then review. */
   iteration_trace: Agent36LoopIterationTrace[];
   iterations: number;
-  stopped_reason: "sufficient" | "max_iterations";
+  stopped_reason: "sufficient" | "max_iterations" | "min_confidence";
+  /** Echo: request `min_confidence` (0–1) when the client sent it. */
+  min_confidence_threshold?: number;
 }

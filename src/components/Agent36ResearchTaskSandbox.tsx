@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { compileAgent36LoopToFlatJson } from "@/lib/agents/compileAgent36Run";
 import {
   AGENT3_PLAN_PHASE2_CHEATSHEET,
   AGENT3_REVIEW_PHASE2_CHEATSHEET,
@@ -15,6 +16,7 @@ import type {
   Agent7ResearchTask,
 } from "@/lib/types";
 import type { Agent36PriorRound } from "@/lib/agents/agent3ResearchPlan";
+import { HARD_CAP_AGENT36_ITERATIONS } from "@/lib/agents/agent36ResearchLoop";
 
 const SAMPLE_RESEARCH_TASK: Agent7ResearchTask = {
   task_id: "market_size_TAM_1",
@@ -346,6 +348,29 @@ function parsePriorRounds(
   return { ok: true, value: parsed as Agent36PriorRound[] };
 }
 
+/** 0–1, or 1–100 as percent. Empty → stop using threshold (API omits the field). */
+function parseMinConfidence(
+  raw: string,
+):
+  | { ok: true; value: number | undefined }
+  | { ok: false; error: string } {
+  const t = raw.trim();
+  if (!t) {
+    return { ok: true, value: undefined };
+  }
+  const n = Number.parseFloat(t.replace(",", "."));
+  if (!Number.isFinite(n)) {
+    return { ok: false, error: "Minimum confidence must be a number (0–1, or 1–100 for percent)." };
+  }
+  if (n > 1 && n <= 100) {
+    return { ok: true, value: n / 100 };
+  }
+  if (n < 0 || n > 1) {
+    return { ok: false, error: "Minimum confidence must be between 0 and 1, or 1–100 for percent." };
+  }
+  return { ok: true, value: n };
+}
+
 function bodyForTaskContext(
   researchTaskText: string,
   domainManualText: string,
@@ -412,14 +437,22 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
   const [busyRev, setBusyRev] = useState(false);
 
   const [maxLoopIterations, setMaxLoopIterations] = useState("3");
+  const [minLoopConfidenceText, setMinLoopConfidenceText] = useState("");
   const [loopTrace, setLoopTrace] = useState<Agent36ResearchLoopResponse | null>(null);
   const [loopError, setLoopError] = useState<string | null>(null);
   const [busyLoop, setBusyLoop] = useState(false);
 
+  const compiledRunJson = useMemo(() => {
+    if (!loopTrace) {
+      return "";
+    }
+    return JSON.stringify(compileAgent36LoopToFlatJson(loopTrace), null, 2);
+  }, [loopTrace]);
+
   const disabledPlan = pipelineBusy || busyPlan || busyLoop;
   const disabledA6 = pipelineBusy || busyA6 || busyLoop;
   const disabledRev = pipelineBusy || busyRev;
-  const disabledLoop = pipelineBusy || busyLoop || busyPlan || busyA6 || busyRev;
+  const disabledLoop = pipelineBusy || busyLoop;
 
   function applyAssignmentFromPlanOutput() {
     setPlanError(null);
@@ -580,10 +613,15 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
       setLoopError(ctx.error);
       return;
     }
+    const minParsed = parseMinConfidence(minLoopConfidenceText);
+    if (!minParsed.ok) {
+      setLoopError(minParsed.error);
+      return;
+    }
     const maxRaw = maxLoopIterations.trim();
     const maxIt = maxRaw ? Number.parseInt(maxRaw, 10) : 3;
-    if (!Number.isFinite(maxIt) || maxIt < 1 || maxIt > 5) {
-      setLoopError("max_iterations must be 1–5.");
+    if (!Number.isFinite(maxIt) || maxIt < 1 || maxIt > HARD_CAP_AGENT36_ITERATIONS) {
+      setLoopError(`max_iterations must be 1–${HARD_CAP_AGENT36_ITERATIONS}.`);
       return;
     }
     setBusyLoop(true);
@@ -596,6 +634,7 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
           domain_manual: ctx.domain_manual,
           research_hygiene: ctx.research_hygiene,
           max_iterations: maxIt,
+          ...(minParsed.value !== undefined ? { min_confidence: minParsed.value } : {}),
         }),
       });
       const data = (await res.json()) as Agent36ResearchLoopResponse | { error?: string };
@@ -774,30 +813,55 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
         </div>
 
         <div className="space-y-2 border-t border-violet-200/80 pt-3">
-          <p className="text-xs font-medium text-violet-900">Full loop (plan → Agent 6 → review, repeat)</p>
-          <p className="text-[11px] text-violet-900/80">
-            Uses this panel’s research_task, domain_manual, and research_hygiene. On success, the last round is copied
-            into all three panels below.
+          <p className="text-xs font-medium text-violet-900">
+            Full iteration (Agent 3 plan → Agent 6 → Agent 3 review, repeat)
           </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="number"
-              min={1}
-              max={5}
-              className="w-16 rounded-md border border-violet-200 bg-white px-2 py-2 text-sm disabled:opacity-50"
-              value={maxLoopIterations}
-              disabled={disabledLoop}
-              onChange={(e) => setMaxLoopIterations(e.target.value)}
-              aria-label="Max loop iterations"
-            />
-            <span className="text-xs text-violet-900">max iterations (1–5)</span>
+          <p className="text-[11px] text-violet-900/80">
+            Uses this panel’s research_task, domain_manual, and research_hygiene. Stops when the model sets{" "}
+            <code className="text-[10px]">needs_further_search: false</code>, when review{" "}
+            <code className="text-[10px]">confidence.score</code> (0–1) meets your minimum, or at max iterations. On
+            success, the last round is copied into the Agent 3 plan, Agent 6, and review panels below.
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-violet-900" htmlFor="p2-loop-min-conf">
+                Minimum confidence (0–1, or 1–100 for %)
+              </label>
+              <input
+                id="p2-loop-min-conf"
+                type="text"
+                inputMode="decimal"
+                className="w-40 rounded-md border border-violet-200 bg-white px-2 py-2 text-sm disabled:opacity-50"
+                placeholder="e.g. 0.75 or 75 (optional)"
+                value={minLoopConfidenceText}
+                disabled={disabledLoop}
+                onChange={(e) => setMinLoopConfidenceText(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-violet-900" htmlFor="p2-loop-max-it">
+                Max iterations
+              </label>
+              <input
+                id="p2-loop-max-it"
+                type="number"
+                min={1}
+                max={HARD_CAP_AGENT36_ITERATIONS}
+                className="w-20 rounded-md border border-violet-200 bg-white px-2 py-2 text-sm disabled:opacity-50"
+                value={maxLoopIterations}
+                disabled={disabledLoop}
+                onChange={(e) => setMaxLoopIterations(e.target.value)}
+                aria-label="Max loop iterations"
+              />
+            </div>
             <button
               type="button"
-              className="rounded-md border border-violet-500 bg-violet-100 px-3 py-2 text-sm font-medium text-violet-950 hover:bg-violet-200 disabled:opacity-50"
+              className="rounded-md border border-violet-500 bg-violet-100 px-3 py-2 text-sm font-medium text-violet-950 hover:bg-violet-200 disabled:opacity-50 sm:mb-0.5"
               disabled={disabledLoop}
               onClick={() => void runLoop()}
             >
-              {busyLoop ? "Loop…" : "Run full loop"}
+              {busyLoop ? "Running iteration…" : "Run full iteration"}
             </button>
           </div>
           {loopError ? (
@@ -809,6 +873,9 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
             <div className="rounded-md border border-violet-300 bg-white/90 p-3 text-xs text-zinc-800">
               <div className="font-semibold text-violet-900">
                 {loopTrace.iterations} round(s) · {loopTrace.stopped_reason}
+                {typeof loopTrace.final_agent3_result.confidence?.score === "number"
+                  ? ` · final confidence ${loopTrace.final_agent3_result.confidence.score.toFixed(3)}`
+                  : null}
               </div>
               <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[10px]">
                 {JSON.stringify(
@@ -817,11 +884,36 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
                     queries: t.agent6_result.queries_used,
                     sources: t.agent6_result.source_urls.length,
                     needs_further: t.agent3_review.needs_further_search,
+                    confidence: t.agent3_review.confidence?.score,
                   })),
                   null,
                   2,
                 )}
               </pre>
+            </div>
+          ) : null}
+          {loopTrace && compiledRunJson ? (
+            <div className="space-y-2 border-t border-violet-200/80 pt-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-medium text-violet-900">
+                  Compiled run JSON (<code className="text-[10px]">agent_3_iter_*</code>,{" "}
+                  <code className="text-[10px]">agent_6_iter_*</code>, <code className="text-[10px]">agent_3review_iter_*</code>
+                  , plus <code className="text-[10px]">__run</code>)
+                </p>
+                <CopyOutputButton
+                  text={compiledRunJson}
+                  label="Copy compiled JSON"
+                  className="!bg-violet-800 hover:!bg-violet-900"
+                />
+              </div>
+              <textarea
+                className="w-full resize-y rounded-md border border-violet-200 bg-zinc-950/5 p-3 font-mono text-[10px] text-zinc-800 outline-none"
+                readOnly
+                rows={12}
+                value={compiledRunJson}
+                spellCheck={false}
+                aria-label="Compiled iteration JSON"
+              />
             </div>
           ) : null}
         </div>

@@ -14,7 +14,7 @@ import { generateAgent3ResearchTaskResult } from "@/lib/agents/agent3ResearchTas
 import { runAgent6ResearchTask } from "@/lib/agents/agent6ResearchTask";
 
 export const DEFAULT_AGENT36_MAX_ITERATIONS = 3;
-export const HARD_CAP_AGENT36_ITERATIONS = 5;
+export const HARD_CAP_AGENT36_ITERATIONS = 20;
 
 /**
  * Agent 7 → Agent 3 **plan** → Agent 6 **execute** → Agent 3 **review** → repeat until sufficient or cap.
@@ -24,11 +24,19 @@ export async function runAgent36ResearchLoop(input: {
   domain_manual?: Record<string, unknown>;
   research_hygiene?: Record<string, unknown>;
   max_iterations?: number;
+  /** 0–1. When set, stop after review if `confidence.score` meets or exceeds this (even if `needs_further_search` is still true). */
+  min_confidence?: number;
 }): Promise<Agent36ResearchLoopResponse> {
   const max = Math.min(
     Math.max(input.max_iterations ?? DEFAULT_AGENT36_MAX_ITERATIONS, 1),
     HARD_CAP_AGENT36_ITERATIONS,
   );
+  const minConfEcho =
+    typeof input.min_confidence === "number" &&
+    input.min_confidence >= 0 &&
+    input.min_confidence <= 1
+      ? input.min_confidence
+      : undefined;
 
   const agent6_runs: Agent6ResearchRunResult[] = [];
   const agent3_plans: Agent3ResearchPlan[] = [];
@@ -85,6 +93,20 @@ export async function runAgent36ResearchLoop(input: {
         iteration_trace,
         iterations: i + 1,
         stopped_reason: "sufficient",
+        ...(minConfEcho !== undefined ? { min_confidence_threshold: minConfEcho } : {}),
+      };
+    }
+
+    const minC = input.min_confidence;
+    if (typeof minC === "number" && minC >= 0 && minC <= 1 && review.confidence.score >= minC) {
+      return {
+        final_agent3_result: review,
+        agent3_plans,
+        agent6_runs,
+        iteration_trace,
+        iterations: i + 1,
+        stopped_reason: "min_confidence",
+        ...(minConfEcho !== undefined ? { min_confidence_threshold: minConfEcho } : {}),
       };
     }
 
@@ -96,6 +118,7 @@ export async function runAgent36ResearchLoop(input: {
         iteration_trace,
         iterations: max,
         stopped_reason: "max_iterations",
+        ...(minConfEcho !== undefined ? { min_confidence_threshold: minConfEcho } : {}),
       };
     }
   }
