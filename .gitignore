@@ -1,5 +1,8 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# specs and personal preferences modules
+.specs
+
 # dependencies
 /node_modules
 /.pnp
