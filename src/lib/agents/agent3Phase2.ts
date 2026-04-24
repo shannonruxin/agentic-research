@@ -76,6 +76,14 @@ const agent3TaskConfidenceSchema = z.object({
   reasoning: z.array(z.string().min(1)).min(1),
 });
 
+const entityTrackingObjectSchema = z.object({
+  total_entities: z.number().int().min(0),
+  new_entities: z.array(z.string()).max(80),
+  repeated_entities: z.array(z.string()).max(80),
+  high_relevance_entities: z.array(z.string()).max(40),
+  high_rabbithole_entities: z.array(z.string()).max(20),
+});
+
 const agent3Phase2FullFlatSchema = z.object({
   plan_summary: trimmedNonEmpty,
   search_objective: trimmedNonEmpty,
@@ -102,13 +110,31 @@ const agent3Phase2FullFlatSchema = z.object({
     source_novelty: z.number().min(0).max(1),
     trend: z.enum(["increasing", "stable", "declining"]),
   }),
-  entity_tracking: z.object({
-    total_entities: z.number().int().min(0),
-    new_entities: z.array(z.string()).max(80),
-    repeated_entities: z.array(z.string()).max(80),
-    high_relevance_entities: z.array(z.string()).max(40),
-    high_rabbithole_entities: z.array(z.string()).max(20),
-  }),
+  /** Models sometimes emit a JSON string; coerce, validate, else defaultEntityTracking(). */
+  entity_tracking: z.preprocess(
+    (val) => {
+      let raw: unknown;
+      if (val === null || val === undefined) {
+        return defaultEntityTracking();
+      }
+      if (typeof val === "string") {
+        const t = val.trim();
+        if (!t) return defaultEntityTracking();
+        try {
+          raw = JSON.parse(t) as unknown;
+        } catch {
+          return defaultEntityTracking();
+        }
+      } else if (typeof val === "object" && !Array.isArray(val)) {
+        raw = val;
+      } else {
+        return defaultEntityTracking();
+      }
+      const parsed = entityTrackingObjectSchema.safeParse(raw);
+      return parsed.success ? parsed.data : defaultEntityTracking();
+    },
+    entityTrackingObjectSchema,
+  ),
   needs_further_search: z.boolean().optional(),
   suggested_queries: z.array(z.string()).max(14).optional(),
   scan_observations: z.array(z.string()).max(60),

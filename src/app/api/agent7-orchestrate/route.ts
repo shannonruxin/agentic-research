@@ -5,6 +5,7 @@ import {
   agent7DimensionSchema,
   orchestrateAgent7,
 } from "@/lib/agents/agent7Orchestrate";
+import { loadWorkspaceDomainManualOrDefault } from "@/lib/workspaceNode";
 
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 
@@ -15,7 +16,8 @@ const knownGapGroupBodySchema = z.object({
 
 const bodySchema = z.object({
   objective: z.string().min(1),
-  domain_manual: jsonObjectSchema,
+  /** Omit or `{}` to use `workspace/domain_manual.json`. */
+  domain_manual: jsonObjectSchema.optional(),
   research_hygiene: jsonObjectSchema.optional(),
   memory: jsonObjectSchema.optional(),
   known_gaps_seed: z.array(knownGapGroupBodySchema).optional(),
@@ -26,7 +28,7 @@ const bodySchema = z.object({
 export const maxDuration = 300;
 
 /**
- * POST body: objective, domain_manual, research_hygiene?, memory?, known_gaps_seed?, key_findings?, dimensions?
+ * POST body: objective, domain_manual? (omit/`{}` → workspace/domain_manual.json), research_hygiene?, memory?, etc.
  */
 export async function POST(req: Request) {
   let json: unknown;
@@ -41,25 +43,25 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error:
-          "Invalid body: expected { objective, domain_manual, research_hygiene?, memory?, known_gaps_seed?, key_findings?, dimensions? }",
+          "Invalid body: expected { objective, domain_manual?, research_hygiene?, memory?, known_gaps_seed?, key_findings?, dimensions? }",
         details: parsed.error.flatten(),
       },
       { status: 400 },
     );
   }
 
-  const { objective, domain_manual, research_hygiene, memory, known_gaps_seed, key_findings, dimensions } =
-    parsed.data;
+  const b = parsed.data;
+  const domain_manual = await loadWorkspaceDomainManualOrDefault(b.domain_manual);
 
   try {
     const result = await orchestrateAgent7({
-      objective,
+      objective: b.objective,
       domain_manual,
-      research_hygiene,
-      memory,
-      known_gaps_seed,
-      key_findings,
-      dimensions,
+      research_hygiene: b.research_hygiene,
+      memory: b.memory,
+      known_gaps_seed: b.known_gaps_seed,
+      key_findings: b.key_findings,
+      dimensions: b.dimensions,
     });
     return NextResponse.json(result);
   } catch (e) {

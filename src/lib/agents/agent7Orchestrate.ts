@@ -26,7 +26,7 @@ export const agent7DimensionSchema = z.object({
   description: z.string().optional(),
 });
 
-const knownGapGroupSchema = z.object({
+export const knownGapGroupSchema = z.object({
   dimension: z.string().optional(),
   gaps: z.array(z.string().min(1)).min(1),
 });
@@ -49,7 +49,7 @@ export const agent7ResearchTaskSchema = z.object({
   expected_output_format: z.array(z.string()).optional(),
 });
 
-const assignmentSchema = z
+export const agent7AssignmentBodySchema = z
   .object({
     assignee: z.enum(["agent3_agent6", "agent4_agent5", "agent8"]),
     summary: z.string().optional(),
@@ -77,7 +77,7 @@ const agent7OutputSchema = z.object({
     rationale: z.string().optional(),
   }) satisfies z.ZodType<Agent7Confidence>,
   train_of_thought: z.string().min(1),
-  assignments: z.array(assignmentSchema).min(1).max(16),
+  assignments: z.array(agent7AssignmentBodySchema).min(1).max(16),
 });
 
 export const AGENT7_SYSTEM_PROMPT = `You are Agent 7 — research orchestrator and judge.

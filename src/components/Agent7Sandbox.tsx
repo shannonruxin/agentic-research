@@ -12,11 +12,21 @@ import type {
 /**
  * Agent 7 — Orchestrator: objective + domain_manual (+ optional hygiene), iterative key_findings.
  */
+type Agent73LoopSuccess = {
+  success: true;
+  stopped: "user_deliver" | "ask_user" | "max_iterations_forced";
+  steps: unknown[];
+  chat_memory_path: string;
+  user_output_path: string;
+};
+
 export type Agent7SandboxProps = {
   /** User objective / query */
   goal: string;
   onGoalChange: (value: string) => void;
   pipelineBusy?: boolean;
+  /** When the Agent 7↔3 orchestration loop runs, parent can block other sandboxes. */
+  onLoopBusyChange?: (busy: boolean) => void;
 };
 
 function parseJsonObjectField(
@@ -151,7 +161,7 @@ function parseKnownGapsSeed(
   return { ok: true, value: out };
 }
 
-export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false }: Agent7SandboxProps) {
+export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false, onLoopBusyChange }: Agent7SandboxProps) {
   const [domainManualText, setDomainManualText] = useState("{}");
   const [researchHygieneText, setResearchHygieneText] = useState("");
   const [memoryText, setMemoryText] = useState("{}");
@@ -163,7 +173,20 @@ export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false }: Agen
   const [serverError, setServerError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<Agent7OrchestrateResult | null>(null);
 
-  const disabled = pipelineBusy || busy;
+  const [loopMinConf, setLoopMinConf] = useState("0.75");
+  const [loopMaxOuter, setLoopMaxOuter] = useState("5");
+  const [loopMaxA36, setLoopMaxA36] = useState("3");
+  const [subjectScopeText, setSubjectScopeText] = useState("");
+  const [loopBusy, setLoopBusy] = useState(false);
+  const [loopError, setLoopError] = useState<string | null>(null);
+  const [lastLoopResult, setLastLoopResult] = useState<Agent73LoopSuccess | null>(null);
+
+  const setLoop = (b: boolean) => {
+    setLoopBusy(b);
+    onLoopBusyChange?.(b);
+  };
+
+  const disabled = pipelineBusy || busy || loopBusy;
 
   const run = useCallback(async () => {
     setClientError(null);
@@ -224,7 +247,7 @@ export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false }: Agen
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           objective,
-          domain_manual: dm.value,
+          ...(Object.keys(dm.value).length > 0 ? { domain_manual: dm.value } : {}),
           ...(hy.value !== undefined ? { research_hygiene: hy.value } : {}),
           ...(mem.value !== undefined && Object.keys(mem.value).length > 0 ? { memory: mem.value } : {}),
           ...(kg.value !== undefined && kg.value.length > 0 ? { known_gaps_seed: kg.value } : {}),
@@ -255,6 +278,147 @@ export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false }: Agen
     knownGapsSeedText,
     keyFindingsSeedText,
     dimensionsSeedText,
+  ]);
+
+  const runAgent73Loop = useCallback(async () => {
+    setClientError(null);
+    setServerError(null);
+    setLoopError(null);
+    setLastLoopResult(null);
+
+    const objective = goal.trim();
+    if (!objective) {
+      setClientError("Objective is required for the 7↔3 loop.");
+      return;
+    }
+
+    const mcRaw = loopMinConf.trim();
+    const minC =
+      mcRaw === ""
+        ? undefined
+        : (() => {
+            const n = Number.parseFloat(mcRaw);
+            if (Number.isNaN(n) || n < 0 || n > 1) {
+              return NaN;
+            }
+            return n;
+          })();
+    if (minC !== undefined && Number.isNaN(minC)) {
+      setClientError("min_confidence must be a number between 0 and 1, or leave empty.");
+      return;
+    }
+
+    const maxOuterN = Number.parseInt(loopMaxOuter.trim(), 10);
+    if (Number.isNaN(maxOuterN) || maxOuterN < 1 || maxOuterN > 50) {
+      setClientError("max outer iterations must be an integer 1–50.");
+      return;
+    }
+
+    const maxA36N = Number.parseInt(loopMaxA36.trim(), 10);
+    if (Number.isNaN(maxA36N) || maxA36N < 1 || maxA36N > 20) {
+      setClientError("max Agent 3↔6 iterations must be 1–20 per research task.");
+      return;
+    }
+
+    const dm = parseJsonObjectField(domainManualText, "domain_manual");
+    if (!dm.ok) {
+      setClientError(dm.error);
+      return;
+    }
+    const hy = parseOptionalJsonObject(researchHygieneText, "research_hygiene");
+    if (!hy.ok) {
+      setClientError(hy.error);
+      return;
+    }
+    const mem = parseOptionalJsonObject(memoryText, "memory");
+    if (!mem.ok) {
+      setClientError(mem.error);
+      return;
+    }
+    const kg = parseKnownGapsSeed(knownGapsSeedText);
+    if (!kg.ok) {
+      setClientError(kg.error);
+      return;
+    }
+    const dimParsed = parseDimensionsSeed(dimensionsSeedText);
+    if (!dimParsed.ok) {
+      setClientError(dimParsed.error);
+      return;
+    }
+    const dimensions = dimParsed.value;
+    let key_findings: Record<string, unknown> | undefined;
+    const kfTrim = keyFindingsSeedText.trim();
+    if (kfTrim) {
+      const kf = parseJsonObjectField(keyFindingsSeedText, "key_findings");
+      if (!kf.ok) {
+        setClientError(kf.error);
+        return;
+      }
+      key_findings = kf.value;
+    }
+
+    setLoop(true);
+    try {
+      const res = await fetch("/api/agent7-3-orchestrate-loop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          objective,
+          ...(Object.keys(dm.value).length > 0 ? { domain_manual: dm.value } : {}),
+          ...(subjectScopeText.trim() ? { subject_scope: subjectScopeText.trim() } : {}),
+          ...(hy.value !== undefined ? { research_hygiene: hy.value } : {}),
+          ...(mem.value !== undefined && Object.keys(mem.value).length > 0 ? { memory: mem.value } : {}),
+          ...(kg.value !== undefined && kg.value.length > 0 ? { known_gaps_seed: kg.value } : {}),
+          ...(key_findings !== undefined ? { key_findings } : {}),
+          ...(dimensions !== undefined && dimensions.length > 0 ? { dimensions } : {}),
+          max_outer_iterations: maxOuterN,
+          max_iterations_3_6: maxA36N,
+          ...(minC !== undefined ? { min_confidence: minC } : {}),
+        }),
+      });
+      const data: unknown = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err =
+          typeof data === "object" && data !== null && "error" in data
+            ? String((data as { error: unknown }).error)
+            : res.statusText;
+        setLoopError(err);
+        return;
+      }
+      const ok = data as Agent73LoopSuccess;
+      setLastLoopResult(ok);
+      for (let i = ok.steps.length - 1; i >= 0; i--) {
+        const s = ok.steps[i];
+        if (
+          typeof s === "object" &&
+          s !== null &&
+          (s as { kind?: string }).kind === "agent7" &&
+          "result" in s
+        ) {
+          const kf = (s as { result: { key_findings?: Record<string, unknown> } }).result.key_findings;
+          if (kf && typeof kf === "object") {
+            setKeyFindingsSeedText(JSON.stringify(kf, null, 2));
+          }
+          break;
+        }
+      }
+    } catch (e) {
+      setLoopError(e instanceof Error ? e.message : "Request failed");
+    } finally {
+      setLoop(false);
+    }
+  }, [
+    goal,
+    domainManualText,
+    researchHygieneText,
+    memoryText,
+    knownGapsSeedText,
+    keyFindingsSeedText,
+    dimensionsSeedText,
+    loopMinConf,
+    loopMaxOuter,
+    loopMaxA36,
+    subjectScopeText,
   ]);
 
   return (
@@ -292,7 +456,8 @@ export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false }: Agen
       </div>
 
       <label className="block text-xs font-medium text-zinc-600" htmlFor="agent7-domain">
-        domain_manual (JSON object)
+        domain_manual (JSON) — <code className="text-[11px]">{"{}"}</code> or omit from request uses{" "}
+        <code className="text-[11px]">workspace/domain_manual.json</code>
       </label>
       <textarea
         id="agent7-domain"
@@ -395,6 +560,87 @@ export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false }: Agen
       >
         {busy ? "Running…" : "Run Agent 7"}
       </button>
+
+      <div className="mt-4 space-y-2 rounded-md border border-indigo-200 bg-indigo-50/50 p-3 text-xs text-zinc-800">
+        <h3 className="text-sm font-semibold text-indigo-900">Agent 7 ↔ 3/6 — run until user-ready</h3>
+        <p className="text-zinc-600">
+          Iterates: Agent 7 → compiled Agent 3/6 run JSON → Agent 7. Multiple{" "}
+          <code className="rounded bg-white px-1">agent3_agent6</code> tasks in one turn run in{" "}
+          <strong className="font-medium">parallel</strong>.           Persists session JSON to{" "}
+          <code className="rounded bg-white px-1">workspace/sandbox-73-memory.json</code> and the final user report to{" "}
+          <code className="rounded bg-white px-1">workspace/user-output.md</code> (on the server).
+        </p>
+        <label className="block text-[11px] font-medium text-zinc-600" htmlFor="agent7-subject-scope">
+          subject_scope (optional — in-scope / out-of-scope / disambig cap; sent as Agent 7 user prompt, not in domain_manual
+          JSON)
+        </label>
+        <textarea
+          id="agent7-subject-scope"
+          className="min-h-[64px] w-full resize-y rounded border border-zinc-300 bg-white p-2 text-xs text-zinc-900"
+          value={subjectScopeText}
+          disabled={disabled}
+          onChange={(e) => setSubjectScopeText(e.target.value)}
+          placeholder="e.g. Target: humeo.com only. Do not re-litigate Hume AI. Then follow domain manual."
+        />
+        <div className="grid gap-2 sm:grid-cols-3">
+          <label className="block text-[11px] font-medium text-zinc-600">
+            min confidence (0–1, optional)
+            <input
+              type="text"
+              className="mt-1 w-full rounded border border-zinc-300 bg-white p-1.5 font-mono text-xs"
+              value={loopMinConf}
+              disabled={disabled}
+              onChange={(e) => setLoopMinConf(e.target.value)}
+              placeholder="0.75 or empty"
+            />
+          </label>
+          <label className="block text-[11px] font-medium text-zinc-600">
+            max outer (Agent 7 turns)
+            <input
+              type="text"
+              inputMode="numeric"
+              className="mt-1 w-full rounded border border-zinc-300 bg-white p-1.5 font-mono text-xs"
+              value={loopMaxOuter}
+              disabled={disabled}
+              onChange={(e) => setLoopMaxOuter(e.target.value)}
+            />
+          </label>
+          <label className="block text-[11px] font-medium text-zinc-600">
+            max 3↔6 iterations / task
+            <input
+              type="text"
+              inputMode="numeric"
+              className="mt-1 w-full rounded border border-zinc-300 bg-white p-1.5 font-mono text-xs"
+              value={loopMaxA36}
+              disabled={disabled}
+              onChange={(e) => setLoopMaxA36(e.target.value)}
+            />
+          </label>
+        </div>
+        {loopError && <p className="text-red-600">{loopError}</p>}
+        <button
+          type="button"
+          className="w-full rounded-md border border-indigo-600 bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-600 disabled:opacity-50"
+          disabled={disabled}
+          onClick={() => void runAgent73Loop()}
+        >
+          {loopBusy ? "Running 7↔3 loop…" : "Run until final user output"}
+        </button>
+        {lastLoopResult && (
+          <div className="rounded border border-indigo-100 bg-white p-2 text-[11px] text-zinc-800">
+            <p>
+              <span className="font-medium">Stopped:</span> {lastLoopResult.stopped}
+            </p>
+            <p className="mt-1 font-mono text-[10px] text-zinc-600">chat: {lastLoopResult.chat_memory_path}</p>
+            <p className="font-mono text-[10px] text-zinc-600">user: {lastLoopResult.user_output_path}</p>
+            <CopyOutputButton
+              className="mt-2"
+              text={JSON.stringify({ steps: lastLoopResult.steps }, null, 2)}
+              label="Copy loop trace (JSON)"
+            />
+          </div>
+        )}
+      </div>
 
       {lastResult && (
         <div className="space-y-3 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">

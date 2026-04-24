@@ -1,0 +1,4 @@
+{
+  "kind": "uninitialized",
+  "message": "Overwritten on each Agent 7 call with literal system + user. Default domain rules: edit domain_manual.json; omit or {} for domain_manual in API to use that file."
+}

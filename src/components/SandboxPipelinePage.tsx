@@ -63,6 +63,7 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
   const [searchQueries, setSearchQueries] = useState<SearchQueries | null>(null);
 
   const [agent7Goal, setAgent7Goal] = useState("");
+  const [agent73LoopBusy, setAgent73LoopBusy] = useState(false);
   const [sandboxResetNonce, setSandboxResetNonce] = useState(0);
   const [archiveAiaAnswerOpen, setArchiveAiaAnswerOpen] = useState(false);
   const [aiAnswerTopic, setAiAnswerTopic] = useState("");
@@ -114,7 +115,8 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
     extractLoading ||
     agent5Loading ||
     fullVerificationRunning ||
-    proofVerificationRunning;
+    proofVerificationRunning ||
+    agent73LoopBusy;
 
   function startNewChat() {
     setQueryDraft("");
@@ -831,7 +833,12 @@ export function SandboxPipelinePage({ sourcePolicyRequest }: SandboxPipelinePage
         </button>
       </header>
 
-      <Agent7Sandbox goal={agent7Goal} onGoalChange={setAgent7Goal} pipelineBusy={sandboxPipelineBusy} />
+      <Agent7Sandbox
+        goal={agent7Goal}
+        onGoalChange={setAgent7Goal}
+        pipelineBusy={sandboxPipelineBusy}
+        onLoopBusyChange={setAgent73LoopBusy}
+      />
 
       <Agent36ResearchTaskSandbox key={sandboxResetNonce} pipelineBusy={sandboxPipelineBusy} />
 

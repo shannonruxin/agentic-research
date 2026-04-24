@@ -1,0 +1,154 @@
+{
+    "domains": [
+      {
+        "domain": "capital_intelligence",
+        "objective": "understand how public capital markets value the target company's business model, technology, and sector",
+        "inputs_required": [
+          "company_name"
+        ],
+        "process": [
+          {
+            "step": "company_characterization",
+            "description": "understand core attributes of the company",
+            "outputs": [
+              "business_model",
+              "technology",
+              "industry"
+            ],
+            "requirements": [
+              "business model must be clearly classified (e.g. marketplace, SaaS, B2B)",
+              "technology must include name, description, and general how it works",
+              "industry classification must be specific"
+            ]
+          },
+          {
+            "step": "comparable_selection",
+            "description": "identify ~10 public comparable companies",
+            "outputs": [
+              "list_of_comparables"
+            ],
+            "requirements": [
+              "companies should be in similar region OR relevant market",
+              "must have exposure to similar technology",
+              "include mix of companies (not just leaders)",
+              "prioritize variation across sub-niches"
+            ],
+            "key_factors": [
+              "geography",
+              "technology",
+              "sub_niche"
+            ],
+            "target_count": 10
+          },
+          {
+            "step": "financial_data_collection",
+            "description": "retrieve financial metrics from public sources",
+            "source": "Yahoo Finance",
+            "outputs": [
+              "PE_ratio",
+              "EV_to_Revenue",
+              "revenue_growth_rate",
+              "historical_trends"
+            ],
+            "requirements": [
+              "PE ratio is primary metric",
+              "include EV/Revenue multiple",
+              "include revenue growth rate when available",
+              "track trends over time for each company"
+            ]
+          },
+          {
+            "step": "valuation_interpretation",
+            "description": "analyze how the public market values the sector",
+            "outputs": [
+              "valuation_trend",
+              "market_signal"
+            ],
+            "interpretation_rules": [
+              "increasing multiples indicate rising market confidence",
+              "stable multiples indicate steady perception",
+              "declining multiples indicate weakening sentiment"
+            ]
+          }
+        ],
+        "success_criteria": [
+          "company characterized across business model, technology, and industry",
+          "approximately 10 relevant comparable companies identified",
+          "financial metrics collected for most comparables",
+          "valuation trends identified across companies",
+          "clear interpretation of market sentiment"
+        ],
+        "failure_conditions": [
+          "company not properly characterized",
+          "fewer than 5 comparables identified",
+          "insufficient financial data collected",
+          "no clear valuation trend identified",
+          "analysis lacks interpretation"
+        ]
+      },
+      {
+        "domain": "technology_intelligence",
+        "objective": "assess how novel and competitive the target company's technology is",
+        "inputs_required": [
+          "technology_description"
+        ],
+        "process": [
+          {
+            "step": "patent_search",
+            "description": "map the technology space using patent data",
+            "source": "Google Patents",
+            "actions": [
+              "search by technology type",
+              "identify relevant patents",
+              "collect filing dates and frequency"
+            ],
+            "outputs": [
+              "patent_list",
+              "patent_frequency",
+              "patent_recency"
+            ]
+          },
+          {
+            "step": "chronological_mapping",
+            "description": "understand evolution of the technology",
+            "outputs": [
+              "technology_timeline"
+            ],
+            "requirements": [
+              "order patents chronologically",
+              "identify progression of ideas and improvements",
+              "highlight major shifts or breakthroughs"
+            ]
+          },
+          {
+            "step": "novelty_assessment",
+            "description": "evaluate how crowded or unique the space is",
+            "outputs": [
+              "novelty_level",
+              "competition_density",
+              "risk_signal"
+            ],
+            "interpretation_rules": [
+              "high patent volume indicates crowded space and lower entry angle",
+              "low patent volume indicates niche or early-stage technology",
+              "recent surge in patents indicates emerging trend",
+              "lack of recent patents may indicate stagnation"
+            ]
+          }
+        ],
+        "success_criteria": [
+          "relevant patents identified",
+          "technology evolution mapped over time",
+          "clear novelty assessment made",
+          "competition density evaluated",
+          "risk signal derived from patent landscape"
+        ],
+        "failure_conditions": [
+          "no relevant patents found",
+          "unable to determine patent trends",
+          "no clear novelty conclusion",
+          "analysis lacks interpretation"
+        ]
+      }
+    ]
+  }
