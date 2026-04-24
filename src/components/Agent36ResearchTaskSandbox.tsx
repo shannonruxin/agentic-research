@@ -59,6 +59,7 @@ const SAMPLE_RESEARCH_TASK: Agent7ResearchTask = {
   fallback_methods: ["Use top-down TAM from healthcare IT market reports"],
   success_criteria: ["TAM estimate with breakdown", "Assumptions listed", "Task-level confidence"],
   priority: "high",
+  follow_domain_manual: true,
   expected_output_format: [
     "Summary of TAM estimate",
     "Variables and sources",
@@ -427,18 +428,13 @@ function parseMinConfidence(
 
 function bodyForTaskContext(
   researchTaskText: string,
-  domainManualText: string,
   researchHygieneText: string,
 ):
-  | { ok: true; research_task: Agent7ResearchTask; domain_manual?: Record<string, unknown>; research_hygiene?: Record<string, unknown> }
+  | { ok: true; research_task: Agent7ResearchTask; research_hygiene?: Record<string, unknown> }
   | { ok: false; error: string } {
   const task = parseResearchTask(researchTaskText);
   if (!task.ok) {
     return { ok: false, error: task.error };
-  }
-  const dm = parseJsonObject(domainManualText, "domain_manual", false);
-  if (!dm.ok) {
-    return { ok: false, error: dm.error };
   }
   const rh = parseJsonObject(researchHygieneText, "research_hygiene", false);
   if (!rh.ok) {
@@ -447,7 +443,6 @@ function bodyForTaskContext(
   return {
     ok: true,
     research_task: task.value,
-    domain_manual: dm.value,
     research_hygiene: rh.value,
   };
 }
@@ -461,7 +456,6 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
 
   /* Agent 3 — UNIFIED /api/agent3-phase2 */
   const [u3TaskText, setU3TaskText] = useState(defaultTaskJson);
-  const [u3DomainText, setU3DomainText] = useState("{}");
   const [u3HygieneText, setU3HygieneText] = useState("{}");
   const [u3Agent6Text, setU3Agent6Text] = useState("");
   const [u3ResearchLogText, setU3ResearchLogText] = useState("");
@@ -472,7 +466,6 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
 
   /* Agent 3 — PLAN (Agent 7 handoff) */
   const [planTaskText, setPlanTaskText] = useState(defaultTaskJson);
-  const [planDomainText, setPlanDomainText] = useState("{}");
   const [planHygieneText, setPlanHygieneText] = useState("{}");
   const [planResearchLogText, setPlanResearchLogText] = useState("");
   const [planPriorRoundsText, setPlanPriorRoundsText] = useState("");
@@ -483,7 +476,6 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
 
   /* Agent 6 */
   const [a6TaskText, setA6TaskText] = useState(defaultTaskJson);
-  const [a6DomainText, setA6DomainText] = useState("{}");
   const [a6HygieneText, setA6HygieneText] = useState("{}");
   const [a6AssignmentText, setA6AssignmentText] = useState("");
   const [a6IterExtText, setA6IterExtText] = useState("");
@@ -493,7 +485,6 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
 
   /* Agent 3 — REVIEW */
   const [revTaskText, setRevTaskText] = useState(defaultTaskJson);
-  const [revDomainText, setRevDomainText] = useState("{}");
   const [revHygieneText, setRevHygieneText] = useState("{}");
   const [revAgent6InputText, setRevAgent6InputText] = useState("");
   const [revResearchLogText, setRevResearchLogText] = useState("");
@@ -618,7 +609,6 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
 
   function syncUnifiedFromPlanPanel() {
     setU3TaskText(planTaskText);
-    setU3DomainText(planDomainText);
     setU3HygieneText(planHygieneText);
     setU3HintText(planHintText);
     if (planResearchLogText.trim()) {
@@ -631,11 +621,6 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
     const task = parseResearchTask(u3TaskText);
     if (!task.ok) {
       setU3Error(task.error);
-      return;
-    }
-    const dm = parseJsonObject(u3DomainText, "domain_manual", false);
-    if (!dm.ok) {
-      setU3Error(dm.error);
       return;
     }
     const rh = parseJsonObject(u3HygieneText, "research_hygiene", false);
@@ -661,7 +646,6 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           research_task: task.value,
-          domain_manual: dm.value,
           research_hygiene: rh.value,
           ...(a6.value ? { agent6_result: a6.value } : {}),
           ...(log.value?.length ? { research_log: log.value } : {}),
@@ -684,7 +668,7 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
 
   async function runPlan() {
     setPlanError(null);
-    const ctx = bodyForTaskContext(planTaskText, planDomainText, planHygieneText);
+    const ctx = bodyForTaskContext(planTaskText, planHygieneText);
     if (!ctx.ok) {
       setPlanError(ctx.error);
       return;
@@ -707,7 +691,6 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           research_task: ctx.research_task,
-          domain_manual: ctx.domain_manual,
           research_hygiene: ctx.research_hygiene,
           prior_rounds: pr.value,
           ...(prLog.value?.length ? { research_log: prLog.value } : {}),
@@ -730,7 +713,7 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
 
   async function runAgent6() {
     setA6Error(null);
-    const ctx = bodyForTaskContext(a6TaskText, a6DomainText, a6HygieneText);
+    const ctx = bodyForTaskContext(a6TaskText, a6HygieneText);
     if (!ctx.ok) {
       setA6Error(ctx.error);
       return;
@@ -753,7 +736,6 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           research_task: ctx.research_task,
-          domain_manual: ctx.domain_manual,
           research_hygiene: ctx.research_hygiene,
           agent3_assignment: assignment,
           iteration_extension: ext.value,
@@ -775,7 +757,7 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
 
   async function runReview() {
     setRevError(null);
-    const ctx = bodyForTaskContext(revTaskText, revDomainText, revHygieneText);
+    const ctx = bodyForTaskContext(revTaskText, revHygieneText);
     if (!ctx.ok) {
       setRevError(ctx.error);
       return;
@@ -799,7 +781,6 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
         body: JSON.stringify({
           research_task: ctx.research_task,
           agent6_result: a6.value,
-          domain_manual: ctx.domain_manual,
           research_hygiene: ctx.research_hygiene,
           ...(revLog.value?.length ? { research_log: revLog.value } : {}),
           iteration_hint: hint,
@@ -822,7 +803,7 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
 
   async function runLoop() {
     setLoopError(null);
-    const ctx = bodyForTaskContext(u3TaskText, u3DomainText, u3HygieneText);
+    const ctx = bodyForTaskContext(u3TaskText, u3HygieneText);
     if (!ctx.ok) {
       setLoopError(ctx.error);
       return;
@@ -850,7 +831,6 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           research_task: ctx.research_task,
-          domain_manual: ctx.domain_manual,
           research_hygiene: ctx.research_hygiene,
           max_iterations: maxIt,
           ...(seedLog.value?.length ? { research_log: seedLog.value } : {}),
@@ -893,6 +873,11 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
         <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
           Phase 2 — Unified Agent 3 API · Plan · Agent 6 · Review
         </h2>
+        <p className="mt-1 text-xs text-zinc-500">
+          Domain context is read from <code className="rounded bg-zinc-200 px-1">workspace/domain-manuals/domain-manual.json</code>{" "}
+          when <code className="rounded bg-zinc-200 px-1">research_task.follow_domain_manual</code> is not{" "}
+          <code className="rounded bg-zinc-200 px-1">false</code> (set by Agent 7 in live flows).{" "}
+        </p>
         <p className="mt-1 text-xs text-zinc-500">
           Orchestration order: <strong className="font-medium text-zinc-700">Agent 7</strong> assigns a{" "}
           <code className="rounded bg-zinc-100 px-1">research_task</code>.{" "}
@@ -942,7 +927,7 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
             disabled={disabledU3}
             onClick={syncUnifiedFromPlanPanel}
           >
-            Sync context from §1 (task, domain, hygiene, hint, research_log)
+            Sync context from §1 (task, hygiene, hint, research_log)
           </button>
           <button
             type="button"
@@ -963,19 +948,6 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
           value={u3TaskText}
           disabled={disabledU3}
           onChange={(e) => setU3TaskText(e.target.value)}
-          spellCheck={false}
-        />
-
-        <label className="block text-xs font-medium text-teal-900" htmlFor="p2-u3-domain">
-          domain_manual (JSON) — optional
-        </label>
-        <textarea
-          id="p2-u3-domain"
-          className={`${panelInputClass} min-h-[56px] border-teal-200 bg-white`}
-          placeholder="{}"
-          value={u3DomainText}
-          disabled={disabledU3}
-          onChange={(e) => setU3DomainText(e.target.value)}
           spellCheck={false}
         />
 
@@ -1079,9 +1051,10 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
             Full iteration (Agent 3 plan → Agent 6 → Agent 3 review, repeat)
           </p>
           <p className="text-[11px] text-teal-900/85">
-            Uses this section’s <code className="text-[10px]">research_task</code>,{" "}
-            <code className="text-[10px]">domain_manual</code>, and <code className="text-[10px]">research_hygiene</code>{" "}
-            above. Optional seed <code className="text-[10px]">research_log</code> below is sent on the first iteration.
+            Uses this section’s <code className="text-[10px]">research_task</code> and{" "}
+            <code className="text-[10px]">research_hygiene</code> (domain JSON is server file +{" "}
+            <code className="text-[10px]">follow_domain_manual</code> on the task). Optional seed{" "}
+            <code className="text-[10px]">research_log</code> below is sent on the first iteration.
             Stops when the model sets <code className="text-[10px]">needs_further_search: false</code>, when review{" "}
             <code className="text-[10px]">confidence.score</code> (0–1) meets your minimum, or at max iterations. On
             success, the last round is copied into the §1 plan, Agent 6, and review panels below; the accumulated{" "}
@@ -1236,19 +1209,6 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
           spellCheck={false}
         />
 
-        <label className="block text-xs font-medium text-violet-900" htmlFor="p2-plan-domain">
-          domain_manual (JSON)
-        </label>
-        <textarea
-          id="p2-plan-domain"
-          className={`${panelInputClass} min-h-[56px] border-violet-200 bg-white`}
-          placeholder="{}"
-          value={planDomainText}
-          disabled={disabledPlan}
-          onChange={(e) => setPlanDomainText(e.target.value)}
-          spellCheck={false}
-        />
-
         <label className="block text-xs font-medium text-violet-900" htmlFor="p2-plan-hygiene">
           research_hygiene (JSON)
         </label>
@@ -1384,19 +1344,6 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
           spellCheck={false}
         />
 
-        <label className="block text-xs font-medium text-sky-900" htmlFor="p2-a6-domain">
-          domain_manual (JSON)
-        </label>
-        <textarea
-          id="p2-a6-domain"
-          className={`${panelInputClass} min-h-[56px] border-sky-200 bg-white`}
-          placeholder="{}"
-          value={a6DomainText}
-          disabled={disabledA6}
-          onChange={(e) => setA6DomainText(e.target.value)}
-          spellCheck={false}
-        />
-
         <label className="block text-xs font-medium text-sky-900" htmlFor="p2-a6-hygiene">
           research_hygiene (JSON)
         </label>
@@ -1515,19 +1462,6 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
           value={revTaskText}
           disabled={disabledRev}
           onChange={(e) => setRevTaskText(e.target.value)}
-          spellCheck={false}
-        />
-
-        <label className="block text-xs font-medium text-amber-900" htmlFor="p2-rev-domain">
-          domain_manual (JSON)
-        </label>
-        <textarea
-          id="p2-rev-domain"
-          className={`${panelInputClass} min-h-[56px] border-amber-200 bg-white`}
-          placeholder="{}"
-          value={revDomainText}
-          disabled={disabledRev}
-          onChange={(e) => setRevDomainText(e.target.value)}
           spellCheck={false}
         />
 
@@ -1667,7 +1601,6 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
                   setA6AssignmentText(JSON.stringify(built.value, null, 2));
                   setA6IterExtText("");
                   setA6TaskText(revTaskText);
-                  setA6DomainText(revDomainText);
                   setA6HygieneText(revHygieneText);
                   document.getElementById("agent6-p2-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
                 }}
@@ -1681,7 +1614,7 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
             <strong>→ Agent 6</strong> builds <code className="text-[10px]">agent3_assignment</code> from{" "}
             <code className="text-[10px]">suggested_queries</code> (or <code className="text-[10px]">task_gaps</code> if
             needed), sets <code className="text-[10px]">search_objective</code> from <code className="text-[10px]">summary</code>,
-            and copies this panel’s <code className="text-[10px]">research_task</code> / domain / hygiene to section 2.
+            and copies this panel’s <code className="text-[10px]">research_task</code> and hygiene to section 2.
           </p>
           <textarea
             id="p2-rev-out"

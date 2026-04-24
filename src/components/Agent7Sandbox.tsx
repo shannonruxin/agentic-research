@@ -10,7 +10,8 @@ import type {
 } from "@/lib/types";
 
 /**
- * Agent 7 — Orchestrator: objective + domain_manual (+ optional hygiene), iterative key_findings.
+ * Agent 7 — Orchestrator: objective + optional hygiene, iterative key_findings. Domain context is
+ * read from `workspace/domain-manuals/domain-manual.json` on the server.
  */
 type Agent73LoopSuccess = {
   success: true;
@@ -162,7 +163,6 @@ function parseKnownGapsSeed(
 }
 
 export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false, onLoopBusyChange }: Agent7SandboxProps) {
-  const [domainManualText, setDomainManualText] = useState("{}");
   const [researchHygieneText, setResearchHygieneText] = useState("");
   const [memoryText, setMemoryText] = useState("{}");
   const [knownGapsSeedText, setKnownGapsSeedText] = useState("");
@@ -195,12 +195,6 @@ export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false, onLoop
     const objective = goal.trim();
     if (!objective) {
       setClientError("Objective is required.");
-      return;
-    }
-
-    const dm = parseJsonObjectField(domainManualText, "domain_manual");
-    if (!dm.ok) {
-      setClientError(dm.error);
       return;
     }
 
@@ -247,7 +241,6 @@ export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false, onLoop
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           objective,
-          ...(Object.keys(dm.value).length > 0 ? { domain_manual: dm.value } : {}),
           ...(hy.value !== undefined ? { research_hygiene: hy.value } : {}),
           ...(mem.value !== undefined && Object.keys(mem.value).length > 0 ? { memory: mem.value } : {}),
           ...(kg.value !== undefined && kg.value.length > 0 ? { known_gaps_seed: kg.value } : {}),
@@ -272,7 +265,6 @@ export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false, onLoop
     }
   }, [
     goal,
-    domainManualText,
     researchHygieneText,
     memoryText,
     knownGapsSeedText,
@@ -320,11 +312,6 @@ export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false, onLoop
       return;
     }
 
-    const dm = parseJsonObjectField(domainManualText, "domain_manual");
-    if (!dm.ok) {
-      setClientError(dm.error);
-      return;
-    }
     const hy = parseOptionalJsonObject(researchHygieneText, "research_hygiene");
     if (!hy.ok) {
       setClientError(hy.error);
@@ -364,7 +351,6 @@ export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false, onLoop
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           objective,
-          ...(Object.keys(dm.value).length > 0 ? { domain_manual: dm.value } : {}),
           ...(subjectScopeText.trim() ? { subject_scope: subjectScopeText.trim() } : {}),
           ...(hy.value !== undefined ? { research_hygiene: hy.value } : {}),
           ...(mem.value !== undefined && Object.keys(mem.value).length > 0 ? { memory: mem.value } : {}),
@@ -409,7 +395,6 @@ export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false, onLoop
     }
   }, [
     goal,
-    domainManualText,
     researchHygieneText,
     memoryText,
     knownGapsSeedText,
@@ -430,8 +415,10 @@ export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false, onLoop
         Agent 7 — Orchestrator
       </h2>
       <p className="text-xs text-zinc-500">
-        Provide a JSON <strong className="font-medium text-zinc-700">domain_manual</strong> and your{" "}
-        <strong className="font-medium text-zinc-700">objective</strong>. Agent 7 returns{" "}
+        Set your <strong className="font-medium text-zinc-700">objective</strong> in the main pipeline input. Domain
+        context is loaded from{" "}
+        <code className="rounded bg-zinc-100 px-1 text-[11px]">workspace/domain-manuals/domain-manual.json</code> (not
+        this panel). Agent 7 returns{" "}
         <strong className="font-medium text-zinc-700">dimensions</strong>,{" "}
         <strong className="font-medium text-zinc-700">key_findings</strong>, grouped{" "}
         <strong className="font-medium text-zinc-700">known_gaps</strong> (including first-turn missing info),{" "}
@@ -455,19 +442,12 @@ export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false, onLoop
         </div>
       </div>
 
-      <label className="block text-xs font-medium text-zinc-600" htmlFor="agent7-domain">
-        domain_manual (JSON) — <code className="text-[11px]">{"{}"}</code> or omit from request uses{" "}
-        <code className="text-[11px]">workspace/domain_manual.json</code>
-      </label>
-      <textarea
-        id="agent7-domain"
-        className="min-h-[120px] w-full resize-y rounded-md border border-zinc-300 bg-white p-3 font-mono text-xs text-zinc-900 outline-none focus:border-zinc-500 disabled:opacity-50"
-        placeholder='{"sector": "...", "rules": [...]}'
-        value={domainManualText}
-        disabled={disabled}
-        onChange={(e) => setDomainManualText(e.target.value)}
-        spellCheck={false}
-      />
+      <p className="text-xs text-zinc-500">
+        <strong className="text-zinc-600">Domain manual:</strong> edit{" "}
+        <code className="text-[11px]">workspace/domain-manuals/domain-manual.json</code> on the server. Agent 7 uses it
+        as a guide (not a rigid script when the topic is unrelated). Each <code className="text-[11px]">research_task</code>{" "}
+        can set <code className="text-[11px]">follow_domain_manual: false</code> so Agent 3/6 skip it for that task.
+      </p>
 
       <label className="block text-xs font-medium text-zinc-600" htmlFor="agent7-hygiene">
         research_hygiene (optional JSON object)

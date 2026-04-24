@@ -64,7 +64,6 @@ export function ResearchChatView() {
   const [error, setError] = useState<string | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
 
-  const [domainManualText, setDomainManualText] = useState("{}");
   const [subjectScopeText, setSubjectScopeText] = useState("");
   const [researchHygieneText, setResearchHygieneText] = useState("");
   const [memoryText, setMemoryText] = useState("{}");
@@ -85,11 +84,6 @@ export function ResearchChatView() {
     if (!text || loading) return;
     setError(null);
 
-    const dm = tryParseJsonObject(domainManualText, "domain_manual");
-    if (!dm.ok) {
-      setError(dm.error);
-      return;
-    }
     const mem = tryParseJsonObject(memoryText, "memory");
     if (!mem.ok) {
       setError(mem.error);
@@ -150,9 +144,6 @@ export function ResearchChatView() {
       max_outer_iterations: maxON,
       max_iterations_3_6: max36n,
     };
-    if (Object.keys(dm.value).length > 0) {
-      body.domain_manual = dm.value;
-    }
     if (Object.keys(mem.value).length) body.memory = mem.value;
     const ss = subjectScopeText.trim();
     if (ss) body.subject_scope = ss;
@@ -255,15 +246,12 @@ export function ResearchChatView() {
         <div className="shrink-0 max-h-[60vh] overflow-y-auto border-t border-zinc-200 bg-white px-4 py-3 sm:px-6">
           <div className="mx-auto max-w-3xl space-y-2 text-xs">
             <p className="font-semibold text-zinc-800">Config</p>
-            <label className="block text-zinc-600">
-              domain_manual (JSON object) — use <code className="rounded bg-zinc-100 px-0.5">{"{}"}</code> or leave empty
-              to read from <code className="rounded bg-zinc-100 px-0.5">workspace/domain_manual.json</code> on the server
-            </label>
-            <textarea
-              className="h-20 w-full rounded border border-zinc-200 bg-zinc-50 p-2 font-mono"
-              value={domainManualText}
-              onChange={(e) => setDomainManualText(e.target.value)}
-            />
+            <p className="text-zinc-600">
+              Domain context for Agent 7 and (when <code className="rounded bg-zinc-100 px-0.5">follow_domain_manual</code>{" "}
+              is not <code className="rounded bg-zinc-100 px-0.5">false</code> on a task) for Agent 3/6 is only read from{" "}
+              <code className="rounded bg-zinc-100 px-0.5">workspace/domain-manuals/domain-manual.json</code> on the server
+              — not configured here.
+            </p>
             <label className="block text-zinc-600">
               subject_scope (optional — in-scope subject, out-of-scope, disambiguation cap; plain text, goes in Agent 7 user
               prompt)

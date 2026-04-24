@@ -8,6 +8,8 @@ import {
   type Agent36PriorRound,
 } from "@/lib/agents/agent3ResearchPlan";
 import { agent3TaskResultSchema, agent6ResultBodySchema } from "@/lib/agents/agent3ResearchTask";
+import { domainManualForAgent3Task } from "@/lib/domainManualPolicy";
+import { loadWorkspaceDomainManualOrDefault } from "@/lib/workspaceNode";
 
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 
@@ -19,7 +21,6 @@ const priorRoundSchema = z.object({
 
 const bodySchema = z.object({
   research_task: agent7ResearchTaskSchema,
-  domain_manual: jsonObjectSchema.optional(),
   research_hygiene: jsonObjectSchema.optional(),
   prior_rounds: z.array(priorRoundSchema).max(8).optional(),
   research_log: z.array(z.record(z.string(), z.unknown())).max(24).optional(),
@@ -29,7 +30,7 @@ const bodySchema = z.object({
 export const maxDuration = 300;
 
 /**
- * POST `{ research_task, domain_manual?, research_hygiene?, prior_rounds?, research_log?, iteration_hint? }`
+ * POST `{ research_task, research_hygiene?, prior_rounds?, research_log?, iteration_hint? }`
  * → **`Agent3ResearchPlan`**
  */
 export async function POST(req: Request) {
@@ -50,9 +51,11 @@ export async function POST(req: Request) {
 
   try {
     const prior = parsed.data.prior_rounds as Agent36PriorRound[] | undefined;
+    const workspaceManual = await loadWorkspaceDomainManualOrDefault();
+    const domain_manual = domainManualForAgent3Task(workspaceManual, parsed.data.research_task);
     const result = await generateAgent3ResearchPlan({
       research_task: parsed.data.research_task,
-      domain_manual: parsed.data.domain_manual,
+      domain_manual,
       research_hygiene: parsed.data.research_hygiene,
       prior_rounds: prior,
       research_log: parsed.data.research_log as import("@/lib/types").Agent3ResearchLogEntry[] | undefined,

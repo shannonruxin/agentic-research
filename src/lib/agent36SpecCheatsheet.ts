@@ -6,8 +6,8 @@ export const AGENT3_PHASE2_UNIFIED_CHEATSHEET = `Agent 3 — Phase 2 UNIFIED (af
 
 Input
 - Flow: Agent 7 provides research_task via assignments. First hop: Agent 3 plans only (no web search). After Agent 6, Agent 3 reviews and emits the next assignment in one response. POST /api/agent3-phase2 accepts optional agent6_result; POST /api/agent3-6-research-loop runs plan → Agent 6 → unified review/plan each iteration until sufficient or cap.
-- research_task (required) — Same JSON as assignments[].research_task from Agent 7.
-- domain_manual, research_hygiene (optional) — Orchestrator JSON context.
+- research_task (required) — Same JSON as assignments[].research_task from Agent 7 (include follow_domain_manual when set).
+- research_hygiene (optional) — Orchestrator JSON context. Domain JSON is only workspace/domain-manuals/domain-manual.json when follow_domain_manual is not false.
 - agent6_result (optional) — Latest Agent6ResearchRunResult; required after the first iteration; absent on the first planning pass.
 - research_log (optional) — Per-iteration memory (newest last): iteration, queries, a6_raw_findings, scan, analysis, progress, decision, insight. Agent 3 treats this as primary memory.
 - iteration_hint (optional) — e.g. “Planning round 2 of 3”.
@@ -34,7 +34,7 @@ Input
 - Flow: Only step that calls Parallel beta.search in the Phase-2 research-task path; extraction LLM maps hits to research_task.
 - research_task (required).
 - agent3_assignment (strongly recommended) — search_objective, search_queries (1–14), optional extraction_notes. Paste inner agent6_assignment or full plan / unified Agent 3 JSON with those top-level fields; server unwraps agent6_assignment when needed.
-- domain_manual, research_hygiene (optional) — Passed into extraction user message.
+- research_hygiene (optional) — Passed into extraction user message. Domain JSON from workspace file when follow_domain_manual is not false.
 - iteration_extension (optional) — { additional_queries?, objective_suffix? } appends then should be cleared on follow-up.
 
 Output

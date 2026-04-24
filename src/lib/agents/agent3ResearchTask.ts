@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { domainManualForAgent3Task } from "@/lib/domainManualPolicy";
 import { agent7ResearchTaskSchema } from "@/lib/agents/agent7Orchestrate";
 import { Agent3Phase2Error, generateAgent3Phase2 } from "@/lib/agents/agent3Phase2";
+import { loadWorkspaceDomainManualOrDefault } from "@/lib/workspaceNode";
 import { extractedKeyDatumZod } from "@/lib/agents/agent6ResearchTask";
 import type { Agent3Phase2Response, Agent6ResearchRunResult, Agent7ResearchTask } from "@/lib/types";
 
@@ -97,7 +99,6 @@ export const agent6ResultBodySchema = z.object({
 export async function generateAgent3ResearchTaskResult(input: {
   research_task: Agent7ResearchTask;
   agent6_result: Agent6ResearchRunResult;
-  domain_manual?: Record<string, unknown>;
   research_hygiene?: Record<string, unknown>;
   research_log?: import("@/lib/types").Agent3ResearchLogEntry[];
   iteration_hint?: string;
@@ -108,10 +109,12 @@ export async function generateAgent3ResearchTaskResult(input: {
   }
 
   try {
+    const workspaceManual = await loadWorkspaceDomainManualOrDefault();
+    const domain_manual = domainManualForAgent3Task(workspaceManual, taskParse.data);
     const full = await generateAgent3Phase2({
       research_task: taskParse.data,
       agent6_result: input.agent6_result,
-      domain_manual: input.domain_manual,
+      domain_manual,
       research_hygiene: input.research_hygiene,
       research_log: input.research_log?.length ? input.research_log : undefined,
       iteration_hint: input.iteration_hint,

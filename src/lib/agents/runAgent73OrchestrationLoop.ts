@@ -21,6 +21,7 @@ import {
   nextResearchTurnKey,
 } from "@/lib/researchSessionMemory";
 import type { Agent7ResearchTask } from "@/lib/types";
+import { domainManualForAgent3Task } from "@/lib/domainManualPolicy";
 import {
   CHAT_MEMORY_FILE,
   loadWorkspaceDomainManualOrDefault,
@@ -80,8 +81,6 @@ export type RunAgent73OrchestrationInput = {
    * much to spend on disambiguation—passed to Agent 7 and finalize as `subject_scope` in the user prompt.
    */
   subject_scope?: string;
-  /** When missing or `{}`, `workspace/domain_manual.json` is loaded server-side. */
-  domain_manual?: Record<string, unknown>;
   research_hygiene?: Record<string, unknown>;
   memoryJson?: Record<string, unknown>;
   known_gaps_seed?: import("@/lib/types").Agent7KnownGapGroup[];
@@ -149,7 +148,7 @@ export async function runAgent73OrchestrationLoop(
 
   const maxOuter = Math.max(1, Math.min(50, Math.trunc(input.max_outer_iterations)));
   const max36 = Math.max(1, Math.min(20, Math.trunc(input.max_iterations_3_6)));
-  const domain_manual = await loadWorkspaceDomainManualOrDefault(input.domain_manual);
+  const domain_manual = await loadWorkspaceDomainManualOrDefault();
 
   const memPath = isResearch ? null : SANDBOX_73_MEMORY_FILE;
   const readPathForAgent7 = isResearch ? CHAT_MEMORY_FILE : SANDBOX_73_MEMORY_FILE;
@@ -278,7 +277,7 @@ export async function runAgent73OrchestrationLoop(
         taskList.map((rt) =>
           runAgent36ResearchLoop({
             research_task: rt,
-            domain_manual,
+            domain_manual: domainManualForAgent3Task(domain_manual, rt),
             research_hygiene: input.research_hygiene,
             min_confidence: input.min_confidence_3_6,
             max_iterations: max36,

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { agent7ResearchTaskSchema } from "@/lib/agents/agent7Orchestrate";
 import { Agent6ResearchTaskError, runAgent6ResearchTask } from "@/lib/agents/agent6ResearchTask";
+import { domainManualForAgent3Task } from "@/lib/domainManualPolicy";
+import { loadWorkspaceDomainManualOrDefault } from "@/lib/workspaceNode";
 
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 
@@ -38,7 +40,6 @@ const agent3AssignmentInBody = z.preprocess(
 
 const bodySchema = z.object({
   research_task: agent7ResearchTaskSchema,
-  domain_manual: jsonObjectSchema.optional(),
   research_hygiene: jsonObjectSchema.optional(),
   /** From Agent 3 **plan** — when set, drives Parallel search (recommended). */
   agent3_assignment: agent3AssignmentInBody,
@@ -48,7 +49,7 @@ const bodySchema = z.object({
 export const maxDuration = 300;
 
 /**
- * POST `{ research_task, domain_manual?, research_hygiene?, agent3_assignment?, iteration_extension? }`
+ * POST `{ research_task, research_hygiene?, agent3_assignment?, iteration_extension? }`
  * → **`Agent6ResearchRunResult`**
  */
 export async function POST(req: Request) {
@@ -68,7 +69,9 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await runAgent6ResearchTask(parsed.data);
+    const workspaceManual = await loadWorkspaceDomainManualOrDefault();
+    const domain_manual = domainManualForAgent3Task(workspaceManual, parsed.data.research_task);
+    const result = await runAgent6ResearchTask({ ...parsed.data, domain_manual });
     return NextResponse.json(result);
   } catch (e) {
     if (e instanceof Agent6ResearchTaskError) {

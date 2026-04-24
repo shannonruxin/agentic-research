@@ -197,6 +197,11 @@ export interface Agent7ResearchTask {
   success_criteria?: string[];
   priority: "high" | "medium" | "low";
   expected_output_format?: string[];
+  /**
+   * Set by Agent 7 per task. When `false`, Agent 3/6 do not load `workspace/domain-manuals/domain-manual.json`.
+   * When omitted or `true`, they use that file. Use `false` when the task is unrelated to the manual.
+   */
+  follow_domain_manual?: boolean;
 }
 
 export interface Agent7Assignment {

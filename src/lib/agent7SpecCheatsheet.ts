@@ -6,7 +6,7 @@ export const AGENT7_SPEC_CHEATSHEET = `Agent 7 — orchestration (field referenc
 
 Input
 - objective (required) — What the user wants answered or decided; the main request text.
-- domain_manual (required) — JSON: domain rules, vocabulary, definitions, and constraints the orchestrator must respect.
+- domain context — Read by the server from workspace/domain-manuals/domain-manual.json (not sent in the API body). A guide: prefer it when the topic fits; do not treat as mandatory when the case is unrelated.
 - research_hygiene (optional) — JSON: citation, sourcing, or process norms (e.g. prefer primary sources, date windows).
 - memory (optional) — JSON: durable prior facts or decisions from the session; empty on first turn.
 - known_gaps_seed (optional) — Array of { dimension?, gaps[] }. Prior missing-info groups to refine; do not drop unresolved items unless they are now addressed.
@@ -35,4 +35,5 @@ research_task (inside assignments, when assignee is agent3_agent6)
 - search_guidance (optional) — Query angles or source types; used for legacy Agent 6 if no agent3_assignment.
 - validation_criteria (optional) — What would falsify or confirm a good answer.
 - adaptation_signals, fallback_methods, success_criteria, expected_output_format (optional) — Escalation and output-shaping hints.
-- priority — high | medium | low.`;
+- priority — high | medium | low.
+- follow_domain_manual (optional boolean) — true or omit: Agent 3/6 load the workspace domain manual. false: skip it for this task (unrelated topic).`;

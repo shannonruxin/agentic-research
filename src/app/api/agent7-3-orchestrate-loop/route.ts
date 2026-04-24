@@ -18,8 +18,6 @@ const knownGapGroupBodySchema = z.object({
 const bodySchema = z.object({
   objective: z.string().min(1),
   subject_scope: z.string().max(12_000).optional(),
-  /** Omit or `{}` to use `workspace/domain_manual.json`. */
-  domain_manual: jsonObjectSchema.optional(),
   research_hygiene: jsonObjectSchema.optional(),
   memory: jsonObjectSchema.optional(),
   known_gaps_seed: z.array(knownGapGroupBodySchema).optional(),
@@ -63,7 +61,6 @@ export async function POST(req: Request) {
     const result = await runAgent73OrchestrationLoop({
       objective: b.objective,
       subject_scope: b.subject_scope,
-      domain_manual: b.domain_manual,
       research_hygiene: b.research_hygiene,
       memoryJson: b.memory,
       known_gaps_seed: b.known_gaps_seed,

@@ -12,7 +12,6 @@ const jsonObjectSchema = z.record(z.string(), z.unknown());
 const bodySchema = z.object({
   research_task: agent7ResearchTaskSchema,
   agent6_result: agent6ResultBodySchema,
-  domain_manual: jsonObjectSchema.optional(),
   research_hygiene: jsonObjectSchema.optional(),
   research_log: z.array(z.record(z.string(), z.unknown())).max(24).optional(),
   iteration_hint: z.string().max(4000).optional(),
@@ -21,7 +20,8 @@ const bodySchema = z.object({
 export const maxDuration = 300;
 
 /**
- * POST `{ research_task, agent6_result, domain_manual?, research_hygiene?, research_log?, iteration_hint? }`
+ * POST `{ research_task, agent6_result, research_hygiene?, research_log?, iteration_hint? }` — domain manual
+ * is `workspace/domain-manuals/domain-manual.json` when `research_task.follow_domain_manual` is not false.
  * → **`Agent3Phase2Response`** (plan fields + review; progress_metrics / entity_tracking when returned).
  */
 export async function POST(req: Request) {
@@ -42,8 +42,11 @@ export async function POST(req: Request) {
 
   try {
     const result = await generateAgent3ResearchTaskResult({
-      ...parsed.data,
+      research_task: parsed.data.research_task,
+      agent6_result: parsed.data.agent6_result,
+      research_hygiene: parsed.data.research_hygiene,
       research_log: parsed.data.research_log as import("@/lib/types").Agent3ResearchLogEntry[] | undefined,
+      iteration_hint: parsed.data.iteration_hint,
     });
     return NextResponse.json(result);
   } catch (e) {

@@ -3,12 +3,13 @@ import { z } from "zod";
 import { agent7ResearchTaskSchema } from "@/lib/agents/agent7Orchestrate";
 import { Agent3Phase2Error, generateAgent3Phase2 } from "@/lib/agents/agent3Phase2";
 import { agent6ResultBodySchema } from "@/lib/agents/agent3ResearchTask";
+import { domainManualForAgent3Task } from "@/lib/domainManualPolicy";
+import { loadWorkspaceDomainManualOrDefault } from "@/lib/workspaceNode";
 
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 
 const bodySchema = z.object({
   research_task: agent7ResearchTaskSchema,
-  domain_manual: jsonObjectSchema.optional(),
   research_hygiene: jsonObjectSchema.optional(),
   agent6_result: agent6ResultBodySchema.optional(),
   research_log: z.array(z.record(z.string(), z.unknown())).max(24).optional(),
@@ -38,9 +39,11 @@ export async function POST(req: Request) {
   }
 
   try {
+    const workspaceManual = await loadWorkspaceDomainManualOrDefault();
+    const domain_manual = domainManualForAgent3Task(workspaceManual, parsed.data.research_task);
     const result = await generateAgent3Phase2({
       research_task: parsed.data.research_task,
-      domain_manual: parsed.data.domain_manual,
+      domain_manual,
       research_hygiene: parsed.data.research_hygiene,
       agent6_result: parsed.data.agent6_result,
       research_log: parsed.data.research_log as import("@/lib/types").Agent3ResearchLogEntry[] | undefined,

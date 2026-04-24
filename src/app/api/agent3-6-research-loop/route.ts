@@ -6,12 +6,13 @@ import { Agent3ResearchPlanError } from "@/lib/agents/agent3ResearchPlan";
 import { Agent3ResearchTaskError } from "@/lib/agents/agent3ResearchTask";
 import { Agent6ResearchTaskError } from "@/lib/agents/agent6ResearchTask";
 import { HARD_CAP_AGENT36_ITERATIONS, runAgent36ResearchLoop } from "@/lib/agents/agent36ResearchLoop";
+import { domainManualForAgent3Task } from "@/lib/domainManualPolicy";
+import { loadWorkspaceDomainManualOrDefault } from "@/lib/workspaceNode";
 
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 
 const bodySchema = z.object({
   research_task: agent7ResearchTaskSchema,
-  domain_manual: jsonObjectSchema.optional(),
   research_hygiene: jsonObjectSchema.optional(),
   research_log: z.array(z.record(z.string(), z.unknown())).max(24).optional(),
   max_iterations: z.number().int().min(1).max(HARD_CAP_AGENT36_ITERATIONS).optional(),
@@ -22,7 +23,7 @@ const bodySchema = z.object({
 export const maxDuration = 600;
 
 /**
- * POST `{ research_task, domain_manual?, research_hygiene?, max_iterations? }`
+ * POST `{ research_task, research_hygiene?, max_iterations? }`
  * → **`Agent36ResearchLoopResponse`**
  */
 export async function POST(req: Request) {
@@ -42,8 +43,11 @@ export async function POST(req: Request) {
   }
 
   try {
+    const workspaceManual = await loadWorkspaceDomainManualOrDefault();
+    const domain_manual = domainManualForAgent3Task(workspaceManual, parsed.data.research_task);
     const result = await runAgent36ResearchLoop({
       ...parsed.data,
+      domain_manual,
       research_log: parsed.data.research_log as import("@/lib/types").Agent3ResearchLogEntry[] | undefined,
     });
     return NextResponse.json(result);

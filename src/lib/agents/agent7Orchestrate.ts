@@ -47,6 +47,7 @@ export const agent7ResearchTaskSchema = z.object({
   success_criteria: z.array(z.string()).optional(),
   priority: z.enum(["high", "medium", "low"]),
   expected_output_format: z.array(z.string()).optional(),
+  follow_domain_manual: z.boolean().optional(),
 });
 
 export const agent7AssignmentBodySchema = z
@@ -84,7 +85,7 @@ export const AGENT7_SYSTEM_PROMPT = `You are Agent 7 — research orchestrator a
 
 You receive:
 - objective: what the user wants answered or decided.
-- domain_manual: JSON object with domain rules, vocabulary, and constraints you MUST respect.
+- domain_manual: JSON from the workspace (single source of truth). It is a **guide**, not a rigid script: prefer it when the topic aligns; **if the case is clearly unrelated to that domain, lean on the objective and evidence norms instead**—do not force-fit irrelevant rules. Never let domain text override safety or warrant claims without evidence.
 - research_hygiene: optional JSON with citation or process constraints (may be empty).
 - memory: optional JSON — durable facts from the conversation (may be empty on first turn).
 - known_gaps_seed: optional prior gap groups — refine and EXTEND; do not drop unresolved items unless resolved.
@@ -103,7 +104,7 @@ train_of_thought:
 - Plain-language reasoning: how you interpreted the objective, which dimensions matter, why gaps exist, and how assignments follow.
 
 assignments (at least one entry):
-- agent3_agent6: MUST include full research_task (task_id, dimension, factor, goal, priority high|medium|low, plus method_instructions, variables_to_find, search_guidance, etc. when you can specify them). One assignment per distinct factor-level research task you are delegating.
+- agent3_agent6: MUST include full research_task (task_id, dimension, factor, goal, priority high|medium|low, plus method_instructions, variables_to_find, search_guidance, follow_domain_manual boolean, etc. when you can specify them). For each **research_task**, set **follow_domain_manual** to **true** when the task should use the workspace domain manual (default if unsure); set **false** when this task is **unrelated** to that manual so Agent 3/6 skip loading it. One assignment per distinct factor-level research task you are delegating.
 - agent4_agent5: optional row when verbatim extract+crop is needed; include verbatim_brief (URLs/claims scope).
 - agent8: optional row when memory should be updated; include memory_directive.
 - Prefer concrete agent3_agent6 tasks for each high-priority gap you can turn into research.
@@ -189,6 +190,10 @@ function normalizeAssignments(raw: z.infer<typeof agent7OutputSchema>["assignmen
           success_criteria: a.research_task.success_criteria?.map((s) => s.trim()).filter(Boolean),
           priority: a.research_task.priority,
           expected_output_format: a.research_task.expected_output_format?.map((s) => s.trim()).filter(Boolean),
+          follow_domain_manual:
+            typeof a.research_task.follow_domain_manual === "boolean"
+              ? a.research_task.follow_domain_manual
+              : undefined,
         }
       : undefined,
     verbatim_brief: a.verbatim_brief?.trim() || undefined,

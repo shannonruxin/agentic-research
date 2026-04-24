@@ -108,6 +108,10 @@ function normalizeResearchCycleAssignments(
           success_criteria: a.research_task.success_criteria?.map((s) => s.trim()).filter(Boolean),
           priority: a.research_task.priority,
           expected_output_format: a.research_task.expected_output_format?.map((s) => s.trim()).filter(Boolean),
+          follow_domain_manual:
+            typeof a.research_task.follow_domain_manual === "boolean"
+              ? a.research_task.follow_domain_manual
+              : undefined,
         }
       : undefined,
     verbatim_brief: a.verbatim_brief?.trim() || undefined,
@@ -170,7 +174,7 @@ or abstract topic—apply the same logic. **Do not** spend more than a **short**
 delivered document re-litigating homonym names, alternate entities, or “disambiguation theater”
 unless the user explicitly needs it or the subject is still genuinely ambiguous after a quick check.
 Mention out-of-scope confusions in at most 2–3 sentences, then \`delegate\` or \`deliver\` on the
-**stated** subject per \`domain_manual\`. If the subject is **not** resolvable, use \`ask_user\` once
+**stated** subject; use \`domain_manual\` as a guide when it fits the case (not when irrelevant). If the subject is **not** resolvable, use \`ask_user\` once
 with targeted questions, then continue—do not loop on identity across many rounds. If
 \`subject_scope\` is missing, use normal prudence: prefer one clarify step over useless broad search.`;
 

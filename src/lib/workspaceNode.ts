@@ -17,10 +17,10 @@ export const USER_OUTPUT_FILE = path.join(WORKSPACE_DIR, "user-output.md");
  */
 export const CONTEXT_BUILDER_FILE = path.join(WORKSPACE_DIR, "context-bridge.json");
 /**
- * Default domain rules when the API/client sends an empty `domain_manual` (`{}` or omitted).
- * Edit this file on the server; it is not overwritten by the app.
+ * Authoritative domain manual JSON for Agent 7 (orchestrator context) and optional Agent 3/6 (when
+ * `research_task.follow_domain_manual` is not false). Edit on disk; APIs do not accept overrides.
  */
-export const DOMAIN_MANUAL_FILE = path.join(WORKSPACE_DIR, "domain_manual.json");
+export const DOMAIN_MANUAL_FILE = path.join(WORKSPACE_DIR, "domain-manuals", "domain-manual.json");
 
 /**
  * Read a JSON object from a workspace file; missing or invalid file yields `{}`.
@@ -42,8 +42,8 @@ export async function readWorkspaceJsonObject(filePath: string): Promise<Record<
 }
 
 /**
- * If `explicit` is missing or an empty object, load `domain_manual.json` from the workspace.
- * Otherwise return `explicit` (caller's inline JSON wins).
+ * If `explicit` is missing or an empty object, load the workspace file. Non-empty `explicit` is
+ * reserved for tests (production routes always use the file).
  */
 export async function loadWorkspaceDomainManualOrDefault(
   explicit?: Record<string, unknown>,

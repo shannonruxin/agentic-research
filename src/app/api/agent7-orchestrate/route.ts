@@ -16,8 +16,6 @@ const knownGapGroupBodySchema = z.object({
 
 const bodySchema = z.object({
   objective: z.string().min(1),
-  /** Omit or `{}` to use `workspace/domain_manual.json`. */
-  domain_manual: jsonObjectSchema.optional(),
   research_hygiene: jsonObjectSchema.optional(),
   memory: jsonObjectSchema.optional(),
   known_gaps_seed: z.array(knownGapGroupBodySchema).optional(),
@@ -28,7 +26,8 @@ const bodySchema = z.object({
 export const maxDuration = 300;
 
 /**
- * POST body: objective, domain_manual? (omit/`{}` → workspace/domain_manual.json), research_hygiene?, memory?, etc.
+ * POST body: objective, research_hygiene?, memory?, etc. Domain context is read from
+ * `workspace/domain-manuals/domain-manual.json` (not accepted in the request body).
  */
 export async function POST(req: Request) {
   let json: unknown;
@@ -43,7 +42,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error:
-          "Invalid body: expected { objective, domain_manual?, research_hygiene?, memory?, known_gaps_seed?, key_findings?, dimensions? }",
+          "Invalid body: expected { objective, research_hygiene?, memory?, known_gaps_seed?, key_findings?, dimensions? }",
         details: parsed.error.flatten(),
       },
       { status: 400 },
@@ -51,7 +50,7 @@ export async function POST(req: Request) {
   }
 
   const b = parsed.data;
-  const domain_manual = await loadWorkspaceDomainManualOrDefault(b.domain_manual);
+  const domain_manual = await loadWorkspaceDomainManualOrDefault();
 
   try {
     const result = await orchestrateAgent7({
