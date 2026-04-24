@@ -8,8 +8,7 @@
  * @module
  */
 
-import type * as agentLogs from "../agentLogs.js";
-import type * as pipelineRuns from "../pipelineRuns.js";
+import type * as users from "../users.js";
 
 import type {
   ApiFromModules,
@@ -18,8 +17,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  agentLogs: typeof agentLogs;
-  pipelineRuns: typeof pipelineRuns;
+  users: typeof users;
 }>;
 
 /**

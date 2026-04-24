@@ -7,11 +7,6 @@ import {
   mergeParallelSourcePolicy,
   parallelSourcePolicyFromEnv,
 } from "@/lib/parallelSourcePolicy";
-import {
-  bestEffortLogAgentStage,
-  bestEffortPersistAgent3Plan,
-} from "@/lib/pipeline/convexPipelineSideEffects";
-
 const supportAngleSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
@@ -130,18 +125,8 @@ export async function POST(req: Request) {
       sq,
       { sourcePolicy },
     );
-    const plan = { evidence_segments: parsed.data.evidence_segments, resources };
-    void bestEffortPersistAgent3Plan(parsed.data.pipeline_run_id, plan);
-    void bestEffortLogAgentStage(parsed.data.pipeline_run_id, "agent6", "ok", {
-      input_summary: `segments:${parsed.data.evidence_segments.length}`,
-      output_summary: `resources:${resources.length}`,
-    });
     return NextResponse.json({ resources });
   } catch (e) {
-    void bestEffortLogAgentStage(parsed.data.pipeline_run_id, "agent6", "error", {
-      input_summary: "agent6-search",
-      error: e instanceof Error ? e.message : String(e),
-    });
     if (e instanceof Agent3EvidenceModelError || e instanceof Agent6SearchError) {
       return NextResponse.json({ error: e.message }, { status: 502 });
     }

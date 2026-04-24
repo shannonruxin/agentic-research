@@ -12,11 +12,6 @@ import {
   parallelSourcePolicyFromEnv,
 } from "@/lib/parallelSourcePolicy";
 import type { CroppedEvidenceItem, PipelineDualColumnResponse } from "@/lib/types";
-import {
-  bestEffortLogAgentStage,
-  bestEffortPersistAgent3Plan,
-  bestEffortPersistEvidenceSegments,
-} from "@/lib/pipeline/convexPipelineSideEffects";
 
 const supportAngleSchema = z.object({
   id: z.string().min(1),
@@ -133,16 +128,7 @@ export async function POST(req: Request) {
   let evidence_segments;
   try {
     evidence_segments = await generateEvidenceSegments(ai.answer_text, dec);
-    void bestEffortPersistEvidenceSegments(runId, evidence_segments);
-    void bestEffortLogAgentStage(runId, "agent3", "ok", {
-      input_summary: `segments:${evidence_segments.length}`,
-      output_summary: evidence_segments.map((s) => s.segment_id).join(","),
-    });
   } catch (e) {
-    void bestEffortLogAgentStage(runId, "agent3", "error", {
-      input_summary: "pipeline agent3",
-      error: e instanceof Error ? e.message : String(e),
-    });
     if (e instanceof Agent3EvidenceModelError) {
       return NextResponse.json({ error: e.message }, { status: 502 });
     }
@@ -153,17 +139,7 @@ export async function POST(req: Request) {
   let resources;
   try {
     resources = await generateAgent6Resources(ai, evidence_segments, dec, sq, { sourcePolicy });
-    const plan = composeAgent3EvidencePlan(evidence_segments, resources);
-    void bestEffortPersistAgent3Plan(runId, plan);
-    void bestEffortLogAgentStage(runId, "agent6", "ok", {
-      input_summary: `segments:${evidence_segments.length}`,
-      output_summary: `resources:${resources.length}`,
-    });
   } catch (e) {
-    void bestEffortLogAgentStage(runId, "agent6", "error", {
-      input_summary: "pipeline agent6",
-      error: e instanceof Error ? e.message : String(e),
-    });
     if (e instanceof Agent3EvidenceModelError || e instanceof Agent6SearchError) {
       return NextResponse.json({ error: e.message }, { status: 502 });
     }

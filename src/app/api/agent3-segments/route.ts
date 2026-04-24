@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Agent3EvidenceModelError, generateEvidenceSegments } from "@/lib/agents/agent3Segments";
-import { bestEffortPersistEvidenceSegments, bestEffortLogAgentStage } from "@/lib/pipeline/convexPipelineSideEffects";
 
 const supportAngleSchema = z.object({
   id: z.string().min(1),
@@ -28,7 +27,7 @@ const aiAnswerSchema = z.object({
 const bodySchema = z.object({
   aiAnswer: aiAnswerSchema,
   decomposition: decompositionSchema.optional(),
-  /** When set, best-effort Convex patch + agent_logs (see `convexPipelineSideEffects`). */
+  /** Optional client correlation id (echoed in response when set). */
   pipeline_run_id: z.string().optional(),
 });
 
@@ -69,17 +68,8 @@ export async function POST(req: Request) {
 
   try {
     const evidence_segments = await generateEvidenceSegments(parsed.data.aiAnswer.answer_text, dec);
-    void bestEffortPersistEvidenceSegments(parsed.data.pipeline_run_id, evidence_segments);
-    void bestEffortLogAgentStage(parsed.data.pipeline_run_id, "agent3", "ok", {
-      input_summary: `segments:${evidence_segments.length}`,
-      output_summary: evidence_segments.map((s) => s.segment_id).join(","),
-    });
     return NextResponse.json({ evidence_segments });
   } catch (e) {
-    void bestEffortLogAgentStage(parsed.data.pipeline_run_id, "agent3", "error", {
-      input_summary: "agent3-segments",
-      error: e instanceof Error ? e.message : String(e),
-    });
     if (e instanceof Agent3EvidenceModelError) {
       return NextResponse.json({ error: e.message }, { status: 502 });
     }

@@ -1,5 +1,6 @@
 "use client";
 
+import { UserButton } from "@clerk/nextjs";
 import { useMemo, useState } from "react";
 import {
   ParallelSourcePolicyMenu,
@@ -46,9 +47,9 @@ export default function Home() {
 
   return (
     <div className="relative flex h-dvh flex-col overflow-hidden">
-      <div className="fixed left-3 top-3 z-[100] flex items-center gap-2 sm:left-4 sm:top-4">
+      <div className="fixed left-3 right-3 top-3 z-[100] flex items-center justify-between gap-2 sm:left-4 sm:right-4 sm:top-4">
         <div
-          className="flex w-fit max-w-[calc(100vw-1.5rem)] flex-wrap gap-0.5 rounded-lg border border-zinc-200 bg-white p-0.5 shadow-md sm:max-w-none"
+          className="flex w-fit max-w-[calc(100vw-8rem)] flex-wrap gap-0.5 rounded-lg border border-zinc-200 bg-white p-0.5 shadow-md sm:max-w-none"
           role="group"
           aria-label="UI mode"
         >
@@ -87,6 +88,9 @@ export default function Home() {
           </button>
         </div>
         <ParallelSourcePolicyMenu {...sourcePolicyMenuProps} inlineTrigger />
+        <div className="shrink-0 [&_.cl-rootBox]:leading-none">
+          <UserButton />
+        </div>
       </div>
 
       {mode === "sandbox" ? (
