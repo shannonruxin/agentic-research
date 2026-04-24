@@ -4,30 +4,16 @@ import { agent7ResearchTaskSchema } from "@/lib/agents/agent7Orchestrate";
 import {
   Agent3ResearchPlanError,
   agent3ResearchPlanSchema,
-  applyPriorReviewToAgent3Plan,
   generateAgent3ResearchPlan,
   type Agent36PriorRound,
 } from "@/lib/agents/agent3ResearchPlan";
-import { agent3TaskResultSchema } from "@/lib/agents/agent3ResearchTask";
+import { agent3TaskResultSchema, agent6ResultBodySchema } from "@/lib/agents/agent3ResearchTask";
 
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 
 const priorRoundSchema = z.object({
   agent3_plan: agent3ResearchPlanSchema,
-  agent6_result: z.object({
-    queries_used: z.array(z.string()),
-    source_urls: z.array(z.string()),
-    extracted_key_data: z.array(
-      z.object({
-        variable: z.string(),
-        status: z.enum(["found", "partial", "not_found"]),
-        value_summary: z.string(),
-        supporting_snippet: z.string().optional(),
-        source_url: z.string().optional(),
-      }),
-    ),
-    parallel_search_id: z.string().nullable().optional(),
-  }),
+  agent6_result: agent6ResultBodySchema,
   agent3_review: agent3TaskResultSchema,
 });
 
@@ -36,13 +22,14 @@ const bodySchema = z.object({
   domain_manual: jsonObjectSchema.optional(),
   research_hygiene: jsonObjectSchema.optional(),
   prior_rounds: z.array(priorRoundSchema).max(8).optional(),
+  research_log: z.array(z.record(z.string(), z.unknown())).max(24).optional(),
   iteration_hint: z.string().max(4000).optional(),
 });
 
 export const maxDuration = 300;
 
 /**
- * POST `{ research_task, domain_manual?, research_hygiene?, prior_rounds?, iteration_hint? }`
+ * POST `{ research_task, domain_manual?, research_hygiene?, prior_rounds?, research_log?, iteration_hint? }`
  * → **`Agent3ResearchPlan`**
  */
 export async function POST(req: Request) {
@@ -63,16 +50,14 @@ export async function POST(req: Request) {
 
   try {
     const prior = parsed.data.prior_rounds as Agent36PriorRound[] | undefined;
-    const raw = await generateAgent3ResearchPlan({
+    const result = await generateAgent3ResearchPlan({
       research_task: parsed.data.research_task,
       domain_manual: parsed.data.domain_manual,
       research_hygiene: parsed.data.research_hygiene,
       prior_rounds: prior,
+      research_log: parsed.data.research_log as import("@/lib/types").Agent3ResearchLogEntry[] | undefined,
       iteration_hint: parsed.data.iteration_hint,
     });
-    const lastReview =
-      prior && prior.length > 0 ? prior[prior.length - 1]!.agent3_review : undefined;
-    const result = applyPriorReviewToAgent3Plan(raw, lastReview);
     return NextResponse.json(result);
   } catch (e) {
     if (e instanceof Agent3ResearchPlanError) {

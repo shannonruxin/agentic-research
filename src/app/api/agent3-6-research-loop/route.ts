@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { agent7ResearchTaskSchema } from "@/lib/agents/agent7Orchestrate";
+import { Agent3Phase2Error } from "@/lib/agents/agent3Phase2";
 import { Agent3ResearchPlanError } from "@/lib/agents/agent3ResearchPlan";
 import { Agent3ResearchTaskError } from "@/lib/agents/agent3ResearchTask";
 import { Agent6ResearchTaskError } from "@/lib/agents/agent6ResearchTask";
@@ -12,6 +13,7 @@ const bodySchema = z.object({
   research_task: agent7ResearchTaskSchema,
   domain_manual: jsonObjectSchema.optional(),
   research_hygiene: jsonObjectSchema.optional(),
+  research_log: z.array(z.record(z.string(), z.unknown())).max(24).optional(),
   max_iterations: z.number().int().min(1).max(HARD_CAP_AGENT36_ITERATIONS).optional(),
   /** 0–1; optional floor on review `confidence.score` to end early. */
   min_confidence: z.number().min(0).max(1).optional(),
@@ -40,13 +42,19 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await runAgent36ResearchLoop(parsed.data);
+    const result = await runAgent36ResearchLoop({
+      ...parsed.data,
+      research_log: parsed.data.research_log as import("@/lib/types").Agent3ResearchLogEntry[] | undefined,
+    });
     return NextResponse.json(result);
   } catch (e) {
     if (e instanceof Agent6ResearchTaskError) {
       const msg = e.message;
       const isConfig = /PARALLEL_API_KEY|not set/i.test(msg);
       return NextResponse.json({ error: msg }, { status: isConfig ? 503 : 502 });
+    }
+    if (e instanceof Agent3Phase2Error) {
+      return NextResponse.json({ error: e.message }, { status: 502 });
     }
     if (e instanceof Agent3ResearchPlanError) {
       return NextResponse.json({ error: e.message }, { status: 502 });

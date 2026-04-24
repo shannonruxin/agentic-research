@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { compileAgent36LoopToFlatJson } from "@/lib/agents/compileAgent36Run";
 import {
+  AGENT3_PHASE2_UNIFIED_CHEATSHEET,
   AGENT3_PLAN_PHASE2_CHEATSHEET,
   AGENT3_REVIEW_PHASE2_CHEATSHEET,
   AGENT6_PHASE2_SPEC_CHEATSHEET,
@@ -10,6 +11,8 @@ import {
 import { CopyOutputButton } from "@/components/CopyOutputButton";
 import type {
   Agent36ResearchLoopResponse,
+  Agent3Phase2Response,
+  Agent3ResearchLogEntry,
   Agent3ResearchPlan,
   Agent6ResearchRunResult,
   Agent6AssignmentFromAgent3,
@@ -137,6 +140,37 @@ function parseAgent6Result(raw: string): { ok: true; value: Agent6ResearchRunRes
     return { ok: false, error: "Agent 6 result must be a JSON object." };
   }
   return { ok: true, value: parsed as Agent6ResearchRunResult };
+}
+
+/** Empty string → undefined (plan-only). Otherwise must be valid Agent 6 JSON object. */
+function parseAgent6ResultOptional(
+  raw: string,
+): { ok: true; value: Agent6ResearchRunResult | undefined } | { ok: false; error: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { ok: true, value: undefined };
+  }
+  return parseAgent6Result(trimmed);
+}
+
+/** Empty → undefined. Otherwise must be a JSON array (research_log entries). */
+function parseResearchLogOptional(
+  raw: string,
+): { ok: true; value: Agent3ResearchLogEntry[] | undefined } | { ok: false; error: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { ok: true, value: undefined };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return { ok: false, error: "research_log is not valid JSON." };
+  }
+  if (!Array.isArray(parsed)) {
+    return { ok: false, error: "research_log must be a JSON array." };
+  }
+  return { ok: true, value: parsed as Agent3ResearchLogEntry[] };
 }
 
 /** Max queries sent to Parallel (see agent6ResearchTask). */
@@ -275,12 +309,32 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
-/** Build the next Agent 6 `agent3_assignment` from an Agent3TaskResult–shaped review (follow-up pass). */
+/** Build the next Agent 6 `agent3_assignment` from review or unified Agent 3 Phase 2 JSON (follow-up pass). */
 function buildAgent6FollowupFromReview(
   review: Record<string, unknown>,
 ):
   | { ok: true; value: Agent6AssignmentFromAgent3 }
   | { ok: false; error: string } {
+  const uObj = review.search_objective;
+  const uQ = review.search_queries;
+  if (
+    typeof uObj === "string" &&
+    uObj.trim() &&
+    Array.isArray(uQ) &&
+    uQ.length &&
+    uQ.every((x) => typeof x === "string" && String(x).trim())
+  ) {
+    const assign: Agent6AssignmentFromAgent3 = {
+      search_objective: uObj.trim(),
+      search_queries: (uQ as string[]).map((s) => s.trim()).filter(Boolean).slice(0, MAX_A6_QUERIES),
+    };
+    const en = review.extraction_notes;
+    if (typeof en === "string" && en.trim()) {
+      assign.extraction_notes = en.trim();
+    }
+    return { ok: true, value: assign };
+  }
+
   const summary = typeof review.summary === "string" ? review.summary.trim() : "";
   const sq = review.suggested_queries;
   const gaps = review.task_gaps;
@@ -405,10 +459,22 @@ export type Agent36ResearchTaskSandboxProps = {
 export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36ResearchTaskSandboxProps) {
   const defaultTaskJson = useMemo(() => JSON.stringify(SAMPLE_RESEARCH_TASK, null, 2), []);
 
+  /* Agent 3 — UNIFIED /api/agent3-phase2 */
+  const [u3TaskText, setU3TaskText] = useState(defaultTaskJson);
+  const [u3DomainText, setU3DomainText] = useState("{}");
+  const [u3HygieneText, setU3HygieneText] = useState("{}");
+  const [u3Agent6Text, setU3Agent6Text] = useState("");
+  const [u3ResearchLogText, setU3ResearchLogText] = useState("");
+  const [u3HintText, setU3HintText] = useState("");
+  const [u3OutputText, setU3OutputText] = useState("");
+  const [u3Error, setU3Error] = useState<string | null>(null);
+  const [busyU3, setBusyU3] = useState(false);
+
   /* Agent 3 — PLAN (Agent 7 handoff) */
   const [planTaskText, setPlanTaskText] = useState(defaultTaskJson);
   const [planDomainText, setPlanDomainText] = useState("{}");
   const [planHygieneText, setPlanHygieneText] = useState("{}");
+  const [planResearchLogText, setPlanResearchLogText] = useState("");
   const [planPriorRoundsText, setPlanPriorRoundsText] = useState("");
   const [planHintText, setPlanHintText] = useState("");
   const [planOutputText, setPlanOutputText] = useState("");
@@ -430,6 +496,7 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
   const [revDomainText, setRevDomainText] = useState("{}");
   const [revHygieneText, setRevHygieneText] = useState("{}");
   const [revAgent6InputText, setRevAgent6InputText] = useState("");
+  const [revResearchLogText, setRevResearchLogText] = useState("");
   const [revHintText, setRevHintText] = useState("");
   const [revOutputText, setRevOutputText] = useState("");
   const [revImportText, setRevImportText] = useState("");
@@ -437,6 +504,8 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
   const [busyRev, setBusyRev] = useState(false);
 
   const [maxLoopIterations, setMaxLoopIterations] = useState("3");
+  /** Seed for POST /api/agent3-6-research-loop — uses unified panel § research_task / domain / hygiene. */
+  const [u3LoopResearchLogText, setU3LoopResearchLogText] = useState("");
   const [minLoopConfidenceText, setMinLoopConfidenceText] = useState("");
   const [loopTrace, setLoopTrace] = useState<Agent36ResearchLoopResponse | null>(null);
   const [loopError, setLoopError] = useState<string | null>(null);
@@ -449,6 +518,7 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
     return JSON.stringify(compileAgent36LoopToFlatJson(loopTrace), null, 2);
   }, [loopTrace]);
 
+  const disabledU3 = pipelineBusy || busyU3 || busyLoop;
   const disabledPlan = pipelineBusy || busyPlan || busyLoop;
   const disabledA6 = pipelineBusy || busyA6 || busyLoop;
   const disabledRev = pipelineBusy || busyRev;
@@ -472,12 +542,144 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
       setPlanError("Plan must be a JSON object.");
       return;
     }
-    const plan = parsed as Agent3ResearchPlan;
-    if (!plan.agent6_assignment) {
-      setPlanError("Plan JSON missing agent6_assignment.");
+    const plan = parsed as Agent3ResearchPlan & {
+      search_objective?: string;
+      search_queries?: string[];
+      extraction_notes?: string;
+    };
+    if (plan.agent6_assignment) {
+      setA6AssignmentText(JSON.stringify(plan.agent6_assignment, null, 2));
       return;
     }
-    setA6AssignmentText(JSON.stringify(plan.agent6_assignment, null, 2));
+    if (
+      typeof plan.search_objective === "string" &&
+      plan.search_objective.trim() &&
+      Array.isArray(plan.search_queries) &&
+      plan.search_queries.length
+    ) {
+      const assign: Agent6AssignmentFromAgent3 = {
+        search_objective: plan.search_objective.trim(),
+        search_queries: plan.search_queries.map((s) => String(s).trim()).filter(Boolean).slice(0, MAX_A6_QUERIES),
+      };
+      if (typeof plan.extraction_notes === "string" && plan.extraction_notes.trim()) {
+        assign.extraction_notes = plan.extraction_notes.trim();
+      }
+      setA6AssignmentText(JSON.stringify(assign, null, 2));
+      return;
+    }
+    setPlanError("Plan JSON missing agent6_assignment or unified search_objective/search_queries.");
+  }
+
+  function applyAssignmentFromUnifiedOutput() {
+    setU3Error(null);
+    const trimmed = u3OutputText.trim();
+    if (!trimmed) {
+      setU3Error("Run unified Agent 3 first, or paste a response JSON.");
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      setU3Error("Unified output is not valid JSON.");
+      return;
+    }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      setU3Error("Unified output must be a JSON object.");
+      return;
+    }
+    const plan = parsed as Agent3ResearchPlan & {
+      search_objective?: string;
+      search_queries?: string[];
+      extraction_notes?: string;
+    };
+    if (plan.agent6_assignment) {
+      setA6AssignmentText(JSON.stringify(plan.agent6_assignment, null, 2));
+      return;
+    }
+    if (
+      typeof plan.search_objective === "string" &&
+      plan.search_objective.trim() &&
+      Array.isArray(plan.search_queries) &&
+      plan.search_queries.length
+    ) {
+      const assign: Agent6AssignmentFromAgent3 = {
+        search_objective: plan.search_objective.trim(),
+        search_queries: plan.search_queries.map((s) => String(s).trim()).filter(Boolean).slice(0, MAX_A6_QUERIES),
+      };
+      if (typeof plan.extraction_notes === "string" && plan.extraction_notes.trim()) {
+        assign.extraction_notes = plan.extraction_notes.trim();
+      }
+      setA6AssignmentText(JSON.stringify(assign, null, 2));
+      return;
+    }
+    setU3Error("Response missing agent6_assignment or top-level search_objective/search_queries.");
+  }
+
+  function syncUnifiedFromPlanPanel() {
+    setU3TaskText(planTaskText);
+    setU3DomainText(planDomainText);
+    setU3HygieneText(planHygieneText);
+    setU3HintText(planHintText);
+    if (planResearchLogText.trim()) {
+      setU3ResearchLogText(planResearchLogText);
+    }
+  }
+
+  async function runUnifiedPhase2() {
+    setU3Error(null);
+    const task = parseResearchTask(u3TaskText);
+    if (!task.ok) {
+      setU3Error(task.error);
+      return;
+    }
+    const dm = parseJsonObject(u3DomainText, "domain_manual", false);
+    if (!dm.ok) {
+      setU3Error(dm.error);
+      return;
+    }
+    const rh = parseJsonObject(u3HygieneText, "research_hygiene", false);
+    if (!rh.ok) {
+      setU3Error(rh.error);
+      return;
+    }
+    const a6 = parseAgent6ResultOptional(u3Agent6Text);
+    if (!a6.ok) {
+      setU3Error(a6.error);
+      return;
+    }
+    const log = parseResearchLogOptional(u3ResearchLogText);
+    if (!log.ok) {
+      setU3Error(log.error);
+      return;
+    }
+    const hint = u3HintText.trim() || undefined;
+    setBusyU3(true);
+    try {
+      const res = await fetch("/api/agent3-phase2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          research_task: task.value,
+          domain_manual: dm.value,
+          research_hygiene: rh.value,
+          ...(a6.value ? { agent6_result: a6.value } : {}),
+          ...(log.value?.length ? { research_log: log.value } : {}),
+          iteration_hint: hint,
+        }),
+      });
+      const data = (await res.json()) as Agent3Phase2Response | { error?: string };
+      if (!res.ok) {
+        setU3Error(typeof data === "object" && data && "error" in data ? String(data.error) : `HTTP ${res.status}`);
+        return;
+      }
+      setU3OutputText(JSON.stringify(data, null, 2));
+      setLoopTrace(null);
+    } catch (e) {
+      setU3Error(e instanceof Error ? e.message : "Unified Agent 3 request failed");
+    } finally {
+      setBusyU3(false);
+    }
   }
 
   async function runPlan() {
@@ -492,6 +694,11 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
       setPlanError(pr.error);
       return;
     }
+    const prLog = parseResearchLogOptional(planResearchLogText);
+    if (!prLog.ok) {
+      setPlanError(prLog.error);
+      return;
+    }
     const hint = planHintText.trim() || undefined;
     setBusyPlan(true);
     try {
@@ -503,6 +710,7 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
           domain_manual: ctx.domain_manual,
           research_hygiene: ctx.research_hygiene,
           prior_rounds: pr.value,
+          ...(prLog.value?.length ? { research_log: prLog.value } : {}),
           iteration_hint: hint,
         }),
       });
@@ -577,6 +785,11 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
       setRevError(a6.error);
       return;
     }
+    const revLog = parseResearchLogOptional(revResearchLogText);
+    if (!revLog.ok) {
+      setRevError(revLog.error);
+      return;
+    }
     const hint = revHintText.trim() || undefined;
     setBusyRev(true);
     try {
@@ -588,6 +801,7 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
           agent6_result: a6.value,
           domain_manual: ctx.domain_manual,
           research_hygiene: ctx.research_hygiene,
+          ...(revLog.value?.length ? { research_log: revLog.value } : {}),
           iteration_hint: hint,
         }),
       });
@@ -608,7 +822,7 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
 
   async function runLoop() {
     setLoopError(null);
-    const ctx = bodyForTaskContext(planTaskText, planDomainText, planHygieneText);
+    const ctx = bodyForTaskContext(u3TaskText, u3DomainText, u3HygieneText);
     if (!ctx.ok) {
       setLoopError(ctx.error);
       return;
@@ -624,6 +838,11 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
       setLoopError(`max_iterations must be 1–${HARD_CAP_AGENT36_ITERATIONS}.`);
       return;
     }
+    const seedLog = parseResearchLogOptional(u3LoopResearchLogText);
+    if (!seedLog.ok) {
+      setLoopError(seedLog.error);
+      return;
+    }
     setBusyLoop(true);
     try {
       const res = await fetch("/api/agent3-6-research-loop", {
@@ -634,6 +853,7 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
           domain_manual: ctx.domain_manual,
           research_hygiene: ctx.research_hygiene,
           max_iterations: maxIt,
+          ...(seedLog.value?.length ? { research_log: seedLog.value } : {}),
           ...(minParsed.value !== undefined ? { min_confidence: minParsed.value } : {}),
         }),
       });
@@ -645,6 +865,9 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
       }
       const loop = data as Agent36ResearchLoopResponse;
       setLoopTrace(loop);
+      const logJson = JSON.stringify(loop.research_log ?? [], null, 2);
+      setU3LoopResearchLogText(logJson);
+      setU3ResearchLogText(logJson);
       const lastRound = loop.iteration_trace[loop.iteration_trace.length - 1];
       if (lastRound) {
         setPlanOutputText(JSON.stringify(lastRound.agent3_plan, null, 2));
@@ -652,6 +875,7 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
         setA6AssignmentText(JSON.stringify(lastRound.agent3_plan.agent6_assignment, null, 2));
         setRevAgent6InputText(JSON.stringify(lastRound.agent6_result, null, 2));
         setRevOutputText(JSON.stringify(lastRound.agent3_review, null, 2));
+        setPlanResearchLogText(logJson);
       }
     } catch (e) {
       setLoopError(e instanceof Error ? e.message : "Loop request failed");
@@ -667,17 +891,311 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
     <div className="shrink-0 space-y-8 border-b border-zinc-200 pb-8">
       <header>
         <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-          Phase 2 — Agent 7 → Agent 3 (plan) → Agent 6 → Agent 3 (review)
+          Phase 2 — Unified Agent 3 API · Plan · Agent 6 · Review
         </h2>
         <p className="mt-1 text-xs text-zinc-500">
           Orchestration order: <strong className="font-medium text-zinc-700">Agent 7</strong> assigns a{" "}
           <code className="rounded bg-zinc-100 px-1">research_task</code>.{" "}
-          <strong className="font-medium text-zinc-700">Agent 3 plans</strong> and assigns{" "}
-          <strong className="font-medium text-zinc-700">Agent 6</strong> (search + extract).{" "}
-          <strong className="font-medium text-zinc-700">Agent 3 reviews</strong> results; further rounds re-plan from
-          prior plan / Agent 6 / review. Each panel has its own inputs and outputs for sandboxing.
+          <strong className="font-medium text-zinc-700">Agent 3</strong> (unified) plans, then after{" "}
+          <strong className="font-medium text-zinc-700">Agent 6</strong> (search + extract) returns review + next
+          assignment. POST <code className="rounded bg-zinc-100 px-1">/api/agent3-phase2</code> for a single pass; loop
+          API maintains <code className="rounded bg-zinc-100 px-1">research_log</code>.
         </p>
+
+        <div className="mt-3 flex flex-wrap items-start justify-end gap-2 rounded-md border border-zinc-200 bg-zinc-50/80 text-xs text-zinc-900">
+          <details className="min-w-0 flex-1">
+            <summary className="cursor-pointer select-none px-3 py-2 font-medium text-zinc-800">
+              Cheatsheet · Agent 3 unified Phase 2
+            </summary>
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap border-t border-zinc-100 bg-white px-3 py-2 font-mono text-[11px] text-zinc-800">
+              {AGENT3_PHASE2_UNIFIED_CHEATSHEET}
+            </pre>
+          </details>
+          <div className="shrink-0 p-1.5">
+            <CopyOutputButton
+              text={AGENT3_PHASE2_UNIFIED_CHEATSHEET}
+              label="Copy"
+              className="!bg-zinc-800 hover:!bg-zinc-900 disabled:hover:!bg-zinc-800"
+            />
+          </div>
+        </div>
       </header>
+
+      {/* —— Agent 3 UNIFIED API —— */}
+      <section
+        aria-labelledby="a3-unified-p2-heading"
+        className="space-y-2 rounded-lg border border-teal-200 bg-teal-50/50 p-4 shadow-sm"
+      >
+        <h3 id="a3-unified-p2-heading" className="text-sm font-semibold text-teal-950">
+          Agent 3 · Unified — <code className="rounded bg-teal-100 px-1 text-xs font-normal">POST /api/agent3-phase2</code>
+        </h3>
+        <p className="text-[11px] text-teal-900/90">
+          One call: <strong>plan only</strong> if <code className="text-[10px]">agent6_result</code> is empty;{" "}
+          <strong>plan + review + next assignment</strong> if you paste Agent 6 output. Optional{" "}
+          <code className="text-[10px]">research_log</code> (JSON array, newest last) is sent as-is to the model.
+        </p>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="rounded-md border border-teal-600 bg-white px-3 py-1.5 text-xs font-medium text-teal-900 hover:bg-teal-50 disabled:opacity-50"
+            disabled={disabledU3}
+            onClick={syncUnifiedFromPlanPanel}
+          >
+            Sync context from §1 (task, domain, hygiene, hint, research_log)
+          </button>
+          <button
+            type="button"
+            className="rounded-md border border-teal-600 bg-white px-3 py-1.5 text-xs font-medium text-teal-900 hover:bg-teal-50 disabled:opacity-50"
+            disabled={disabledU3 || !a6OutputText.trim()}
+            onClick={() => setU3Agent6Text(a6OutputText)}
+          >
+            Paste §2 Agent 6 output → agent6_result
+          </button>
+        </div>
+
+        <label className="block text-xs font-medium text-teal-900" htmlFor="p2-u3-task">
+          research_task (JSON) — required
+        </label>
+        <textarea
+          id="p2-u3-task"
+          className={`${panelInputClass} min-h-[140px] border-teal-200 bg-white`}
+          value={u3TaskText}
+          disabled={disabledU3}
+          onChange={(e) => setU3TaskText(e.target.value)}
+          spellCheck={false}
+        />
+
+        <label className="block text-xs font-medium text-teal-900" htmlFor="p2-u3-domain">
+          domain_manual (JSON) — optional
+        </label>
+        <textarea
+          id="p2-u3-domain"
+          className={`${panelInputClass} min-h-[56px] border-teal-200 bg-white`}
+          placeholder="{}"
+          value={u3DomainText}
+          disabled={disabledU3}
+          onChange={(e) => setU3DomainText(e.target.value)}
+          spellCheck={false}
+        />
+
+        <label className="block text-xs font-medium text-teal-900" htmlFor="p2-u3-hygiene">
+          research_hygiene (JSON) — optional
+        </label>
+        <textarea
+          id="p2-u3-hygiene"
+          className={`${panelInputClass} min-h-[56px] border-teal-200 bg-white`}
+          placeholder="{}"
+          value={u3HygieneText}
+          disabled={disabledU3}
+          onChange={(e) => setU3HygieneText(e.target.value)}
+          spellCheck={false}
+        />
+
+        <label className="block text-xs font-medium text-teal-900" htmlFor="p2-u3-a6">
+          agent6_result (JSON) — optional; leave empty for planning-only
+        </label>
+        <textarea
+          id="p2-u3-a6"
+          className={`${panelInputClass} min-h-[120px] border-teal-200 bg-white`}
+          placeholder='queries_used, source_urls, extracted_key_data, parallel_search_id? — paste Agent 6 response'
+          value={u3Agent6Text}
+          disabled={disabledU3}
+          onChange={(e) => setU3Agent6Text(e.target.value)}
+          spellCheck={false}
+        />
+
+        <label className="block text-xs font-medium text-teal-900" htmlFor="p2-u3-log">
+          research_log (JSON array) — optional; per-iteration memory, newest last
+        </label>
+        <textarea
+          id="p2-u3-log"
+          className={`${panelInputClass} min-h-[72px] border-teal-200 bg-white`}
+          placeholder='[ ] or [ { "iteration": 1, "queries": [...], "a6_raw_findings": {...}, "scan": {...}, ... }, ... ]'
+          value={u3ResearchLogText}
+          disabled={disabledU3}
+          onChange={(e) => setU3ResearchLogText(e.target.value)}
+          spellCheck={false}
+        />
+
+        <label className="block text-xs font-medium text-teal-900" htmlFor="p2-u3-hint">
+          iteration_hint — optional
+        </label>
+        <input
+          id="p2-u3-hint"
+          type="text"
+          className={`${panelInputClass} min-h-0 border-teal-200 bg-white py-2`}
+          placeholder='e.g. "Planning round 2 of 3"'
+          value={u3HintText}
+          disabled={disabledU3}
+          onChange={(e) => setU3HintText(e.target.value)}
+        />
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="rounded-md border border-teal-800 bg-teal-900 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-50"
+            disabled={disabledU3}
+            onClick={() => void runUnifiedPhase2()}
+          >
+            {busyU3 ? "Running…" : "Run unified Agent 3"}
+          </button>
+          <button
+            type="button"
+            className="rounded-md border border-teal-600 bg-white px-3 py-2 text-sm font-medium text-teal-950 hover:bg-teal-50 disabled:opacity-50"
+            disabled={disabledU3 || !u3OutputText.trim()}
+            onClick={applyAssignmentFromUnifiedOutput}
+          >
+            Copy response → Agent 6 assignment
+          </button>
+        </div>
+
+        {u3Error ? (
+          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
+            {u3Error}
+          </p>
+        ) : null}
+
+        <div className="space-y-2 border-t border-teal-200/80 pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="text-xs font-medium text-teal-900" htmlFor="p2-u3-out">
+              Response (JSON) — full Agent3Phase2Response after review; plan-only omits deep review fields
+            </label>
+            <CopyOutputButton text={u3OutputText} label="Copy" disabled={!u3OutputText.trim()} />
+          </div>
+          <textarea
+            id="p2-u3-out"
+            className={`${panelInputClass} min-h-[180px] border-teal-300 bg-white`}
+            placeholder="Run to populate."
+            value={u3OutputText}
+            disabled={disabledU3}
+            onChange={(e) => setU3OutputText(e.target.value)}
+            spellCheck={false}
+          />
+        </div>
+
+        <div className="space-y-2 border-t border-teal-200/80 pt-3">
+          <p className="text-xs font-medium text-teal-900">
+            Full iteration (Agent 3 plan → Agent 6 → Agent 3 review, repeat)
+          </p>
+          <p className="text-[11px] text-teal-900/85">
+            Uses this section’s <code className="text-[10px]">research_task</code>,{" "}
+            <code className="text-[10px]">domain_manual</code>, and <code className="text-[10px]">research_hygiene</code>{" "}
+            above. Optional seed <code className="text-[10px]">research_log</code> below is sent on the first iteration.
+            Stops when the model sets <code className="text-[10px]">needs_further_search: false</code>, when review{" "}
+            <code className="text-[10px]">confidence.score</code> (0–1) meets your minimum, or at max iterations. On
+            success, the last round is copied into the §1 plan, Agent 6, and review panels below; the accumulated{" "}
+            <code className="text-[10px]">research_log</code> is written back into the seed field and the unified{" "}
+            <code className="text-[10px]">research_log</code> textarea.
+          </p>
+          <label className="block text-[11px] font-medium text-teal-900" htmlFor="p2-u3-loop-seed-log">
+            research_log seed (optional JSON array)
+          </label>
+          <textarea
+            id="p2-u3-loop-seed-log"
+            className={`${panelInputClass} min-h-[48px] border-teal-200 bg-white`}
+            placeholder="[] — or paste prior research_log to continue memory"
+            value={u3LoopResearchLogText}
+            disabled={disabledLoop}
+            onChange={(e) => setU3LoopResearchLogText(e.target.value)}
+            spellCheck={false}
+          />
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-teal-900" htmlFor="p2-u3-loop-min-conf">
+                Minimum confidence (0–1, or 1–100 for %)
+              </label>
+              <input
+                id="p2-u3-loop-min-conf"
+                type="text"
+                inputMode="decimal"
+                className="w-40 rounded-md border border-teal-200 bg-white px-2 py-2 text-sm disabled:opacity-50"
+                placeholder="e.g. 0.75 or 75 (optional)"
+                value={minLoopConfidenceText}
+                disabled={disabledLoop}
+                onChange={(e) => setMinLoopConfidenceText(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-teal-900" htmlFor="p2-u3-loop-max-it">
+                Max iterations
+              </label>
+              <input
+                id="p2-u3-loop-max-it"
+                type="number"
+                min={1}
+                max={HARD_CAP_AGENT36_ITERATIONS}
+                className="w-20 rounded-md border border-teal-200 bg-white px-2 py-2 text-sm disabled:opacity-50"
+                value={maxLoopIterations}
+                disabled={disabledLoop}
+                onChange={(e) => setMaxLoopIterations(e.target.value)}
+                aria-label="Max loop iterations"
+              />
+            </div>
+            <button
+              type="button"
+              className="rounded-md border border-teal-600 bg-teal-100 px-3 py-2 text-sm font-medium text-teal-950 hover:bg-teal-200 disabled:opacity-50 sm:mb-0.5"
+              disabled={disabledLoop}
+              onClick={() => void runLoop()}
+            >
+              {busyLoop ? "Running iteration…" : "Run full iteration"}
+            </button>
+          </div>
+          {loopError ? (
+            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
+              {loopError}
+            </p>
+          ) : null}
+          {loopTrace ? (
+            <div className="rounded-md border border-teal-300 bg-white/90 p-3 text-xs text-zinc-800">
+              <div className="font-semibold text-teal-900">
+                {loopTrace.iterations} round(s) · {loopTrace.stopped_reason}
+                {typeof loopTrace.final_agent3_result.confidence?.score === "number"
+                  ? ` · final confidence ${loopTrace.final_agent3_result.confidence.score.toFixed(3)}`
+                  : null}
+              </div>
+              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[10px]">
+                {JSON.stringify(
+                  loopTrace.iteration_trace.map((t) => ({
+                    plan_summary: t.agent3_plan.plan_summary,
+                    queries: t.agent6_result.queries_used,
+                    sources: t.agent6_result.source_urls.length,
+                    needs_further: t.agent3_review.needs_further_search,
+                    confidence: t.agent3_review.confidence?.score,
+                  })),
+                  null,
+                  2,
+                )}
+              </pre>
+            </div>
+          ) : null}
+          {loopTrace && compiledRunJson ? (
+            <div className="space-y-2 border-t border-teal-200/80 pt-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-medium text-teal-900">
+                  Compiled run JSON (<code className="text-[10px]">agent_3_iter_*</code> unified plan + post–Agent 6
+                  fields, <code className="text-[10px]">agent_6_iter_*</code>,{" "}
+                  <code className="text-[10px]">research_log</code>, <code className="text-[10px]">__run</code>)
+                </p>
+                <CopyOutputButton
+                  text={compiledRunJson}
+                  label="Copy compiled JSON"
+                  className="!bg-teal-800 hover:!bg-teal-900"
+                />
+              </div>
+              <textarea
+                className="w-full resize-y rounded-md border border-teal-200 bg-zinc-950/5 p-3 font-mono text-[10px] text-zinc-800 outline-none"
+                readOnly
+                rows={12}
+                value={compiledRunJson}
+                spellCheck={false}
+                aria-label="Compiled iteration JSON"
+              />
+            </div>
+          ) : null}
+        </div>
+      </section>
 
       {/* —— Agent 3 PLAN —— */}
       <section
@@ -745,7 +1263,7 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
         />
 
         <label className="block text-xs font-medium text-violet-900" htmlFor="p2-plan-prior">
-          prior_rounds (optional JSON array — re-plan only)
+          prior_rounds (optional JSON array — re-plan only; legacy)
         </label>
         <textarea
           id="p2-plan-prior"
@@ -754,6 +1272,19 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
           value={planPriorRoundsText}
           disabled={disabledPlan}
           onChange={(e) => setPlanPriorRoundsText(e.target.value)}
+          spellCheck={false}
+        />
+
+        <label className="block text-xs font-medium text-violet-900" htmlFor="p2-plan-log">
+          research_log (optional JSON array — preferred memory; newest last)
+        </label>
+        <textarea
+          id="p2-plan-log"
+          className={`${panelInputClass} min-h-[56px] border-violet-200 bg-white`}
+          placeholder="Leave empty, or paste full research_log from a prior run / unified panel"
+          value={planResearchLogText}
+          disabled={disabledPlan}
+          onChange={(e) => setPlanResearchLogText(e.target.value)}
           spellCheck={false}
         />
 
@@ -810,112 +1341,6 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
             onChange={(e) => setPlanOutputText(e.target.value)}
             spellCheck={false}
           />
-        </div>
-
-        <div className="space-y-2 border-t border-violet-200/80 pt-3">
-          <p className="text-xs font-medium text-violet-900">
-            Full iteration (Agent 3 plan → Agent 6 → Agent 3 review, repeat)
-          </p>
-          <p className="text-[11px] text-violet-900/80">
-            Uses this panel’s research_task, domain_manual, and research_hygiene. Stops when the model sets{" "}
-            <code className="text-[10px]">needs_further_search: false</code>, when review{" "}
-            <code className="text-[10px]">confidence.score</code> (0–1) meets your minimum, or at max iterations. On
-            success, the last round is copied into the Agent 3 plan, Agent 6, and review panels below.
-          </p>
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-medium text-violet-900" htmlFor="p2-loop-min-conf">
-                Minimum confidence (0–1, or 1–100 for %)
-              </label>
-              <input
-                id="p2-loop-min-conf"
-                type="text"
-                inputMode="decimal"
-                className="w-40 rounded-md border border-violet-200 bg-white px-2 py-2 text-sm disabled:opacity-50"
-                placeholder="e.g. 0.75 or 75 (optional)"
-                value={minLoopConfidenceText}
-                disabled={disabledLoop}
-                onChange={(e) => setMinLoopConfidenceText(e.target.value)}
-                autoComplete="off"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-medium text-violet-900" htmlFor="p2-loop-max-it">
-                Max iterations
-              </label>
-              <input
-                id="p2-loop-max-it"
-                type="number"
-                min={1}
-                max={HARD_CAP_AGENT36_ITERATIONS}
-                className="w-20 rounded-md border border-violet-200 bg-white px-2 py-2 text-sm disabled:opacity-50"
-                value={maxLoopIterations}
-                disabled={disabledLoop}
-                onChange={(e) => setMaxLoopIterations(e.target.value)}
-                aria-label="Max loop iterations"
-              />
-            </div>
-            <button
-              type="button"
-              className="rounded-md border border-violet-500 bg-violet-100 px-3 py-2 text-sm font-medium text-violet-950 hover:bg-violet-200 disabled:opacity-50 sm:mb-0.5"
-              disabled={disabledLoop}
-              onClick={() => void runLoop()}
-            >
-              {busyLoop ? "Running iteration…" : "Run full iteration"}
-            </button>
-          </div>
-          {loopError ? (
-            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
-              {loopError}
-            </p>
-          ) : null}
-          {loopTrace ? (
-            <div className="rounded-md border border-violet-300 bg-white/90 p-3 text-xs text-zinc-800">
-              <div className="font-semibold text-violet-900">
-                {loopTrace.iterations} round(s) · {loopTrace.stopped_reason}
-                {typeof loopTrace.final_agent3_result.confidence?.score === "number"
-                  ? ` · final confidence ${loopTrace.final_agent3_result.confidence.score.toFixed(3)}`
-                  : null}
-              </div>
-              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[10px]">
-                {JSON.stringify(
-                  loopTrace.iteration_trace.map((t) => ({
-                    plan_summary: t.agent3_plan.plan_summary,
-                    queries: t.agent6_result.queries_used,
-                    sources: t.agent6_result.source_urls.length,
-                    needs_further: t.agent3_review.needs_further_search,
-                    confidence: t.agent3_review.confidence?.score,
-                  })),
-                  null,
-                  2,
-                )}
-              </pre>
-            </div>
-          ) : null}
-          {loopTrace && compiledRunJson ? (
-            <div className="space-y-2 border-t border-violet-200/80 pt-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs font-medium text-violet-900">
-                  Compiled run JSON (<code className="text-[10px]">agent_3_iter_*</code>,{" "}
-                  <code className="text-[10px]">agent_6_iter_*</code>, <code className="text-[10px]">agent_3review_iter_*</code>
-                  , plus <code className="text-[10px]">__run</code>)
-                </p>
-                <CopyOutputButton
-                  text={compiledRunJson}
-                  label="Copy compiled JSON"
-                  className="!bg-violet-800 hover:!bg-violet-900"
-                />
-              </div>
-              <textarea
-                className="w-full resize-y rounded-md border border-violet-200 bg-zinc-950/5 p-3 font-mono text-[10px] text-zinc-800 outline-none"
-                readOnly
-                rows={12}
-                value={compiledRunJson}
-                spellCheck={false}
-                aria-label="Compiled iteration JSON"
-              />
-            </div>
-          ) : null}
         </div>
       </section>
 
@@ -1129,6 +1554,19 @@ export function Agent36ResearchTaskSandbox({ pipelineBusy = false }: Agent36Rese
           value={revAgent6InputText}
           disabled={disabledRev}
           onChange={(e) => setRevAgent6InputText(e.target.value)}
+          spellCheck={false}
+        />
+
+        <label className="block text-xs font-medium text-amber-900" htmlFor="p2-rev-log">
+          research_log (optional JSON array)
+        </label>
+        <textarea
+          id="p2-rev-log"
+          className={`${panelInputClass} min-h-[56px] border-amber-200 bg-white`}
+          placeholder="Leave empty, or paste cumulative research_log (newest last)"
+          value={revResearchLogText}
+          disabled={disabledRev}
+          onChange={(e) => setRevResearchLogText(e.target.value)}
           spellCheck={false}
         />
 

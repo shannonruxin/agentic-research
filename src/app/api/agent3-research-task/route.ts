@@ -4,38 +4,25 @@ import { agent7ResearchTaskSchema } from "@/lib/agents/agent7Orchestrate";
 import {
   Agent3ResearchTaskError,
   generateAgent3ResearchTaskResult,
+  agent6ResultBodySchema,
 } from "@/lib/agents/agent3ResearchTask";
 
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 
-const agent6ResultSchema = z.object({
-  queries_used: z.array(z.string()),
-  source_urls: z.array(z.string()),
-  extracted_key_data: z.array(
-    z.object({
-      variable: z.string(),
-      status: z.enum(["found", "partial", "not_found"]),
-      value_summary: z.string(),
-      supporting_snippet: z.string().optional(),
-      source_url: z.string().optional(),
-    }),
-  ),
-  parallel_search_id: z.string().nullable().optional(),
-});
-
 const bodySchema = z.object({
   research_task: agent7ResearchTaskSchema,
-  agent6_result: agent6ResultSchema,
+  agent6_result: agent6ResultBodySchema,
   domain_manual: jsonObjectSchema.optional(),
   research_hygiene: jsonObjectSchema.optional(),
+  research_log: z.array(z.record(z.string(), z.unknown())).max(24).optional(),
   iteration_hint: z.string().max(4000).optional(),
 });
 
 export const maxDuration = 300;
 
 /**
- * POST `{ research_task, agent6_result, domain_manual?, research_hygiene?, iteration_hint? }`
- * → **`Agent3TaskResult`**
+ * POST `{ research_task, agent6_result, domain_manual?, research_hygiene?, research_log?, iteration_hint? }`
+ * → **`Agent3Phase2Response`** (plan fields + review; progress_metrics / entity_tracking when returned).
  */
 export async function POST(req: Request) {
   let json: unknown;
@@ -54,7 +41,10 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await generateAgent3ResearchTaskResult(parsed.data);
+    const result = await generateAgent3ResearchTaskResult({
+      ...parsed.data,
+      research_log: parsed.data.research_log as import("@/lib/types").Agent3ResearchLogEntry[] | undefined,
+    });
     return NextResponse.json(result);
   } catch (e) {
     if (e instanceof Agent3ResearchTaskError) {

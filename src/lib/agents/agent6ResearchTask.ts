@@ -27,16 +27,173 @@ const MAX_OBJECTIVE_LEN = 6000;
 const MAX_QUERIES = 14;
 const MAX_SEARCH_RESULTS = 14;
 
-const keyDatumSchema = z.object({
-  variable: z.string().min(1),
-  status: z.enum(["found", "partial", "not_found"]),
-  value_summary: z.string().min(1),
-  supporting_snippet: z.string().optional(),
-  source_url: z.string().optional(),
+const LIST_MAX = 48;
+
+/** Normalize model output: string, single value, or array → trimmed string[] */
+function toStringList(val: unknown): string[] {
+  if (val === undefined || val === null) {
+    return [];
+  }
+  if (Array.isArray(val)) {
+    return val.flatMap((item) => {
+      if (item === null || item === undefined) {
+        return [];
+      }
+      const t = typeof item === "string" ? item.trim() : String(item).trim();
+      return t ? [t] : [];
+    });
+  }
+  if (typeof val === "string") {
+    const t = val.trim();
+    return t ? [t] : [];
+  }
+  const t = String(val).trim();
+  return t ? [t] : [];
+}
+
+function optionalStringList() {
+  return z.preprocess(
+    (val) => {
+      if (val === undefined || val === null) {
+        return undefined;
+      }
+      const list = toStringList(val);
+      return list.length ? list : undefined;
+    },
+    z.array(z.string()).max(LIST_MAX).optional(),
+  );
+}
+
+const signalLevelEnum = z.enum(["high", "medium", "low"]);
+
+function normalizeSignalLevel(val: unknown): "high" | "medium" | "low" | undefined {
+  if (typeof val !== "string") {
+    return undefined;
+  }
+  const s = val.trim().toLowerCase();
+  if (s === "high" || s === "medium" || s === "low") {
+    return s;
+  }
+  return undefined;
+}
+
+const signalsSchema = z.preprocess(
+  (val) => {
+    if (val === undefined || val === null) {
+      return undefined;
+    }
+    if (typeof val !== "object" || Array.isArray(val)) {
+      return undefined;
+    }
+    const o = val as Record<string, unknown>;
+    const novelty = normalizeSignalLevel(o.novelty);
+    const specificity = normalizeSignalLevel(o.specificity);
+    const clarity = normalizeSignalLevel(o.clarity);
+    if (novelty === undefined && specificity === undefined && clarity === undefined) {
+      return undefined;
+    }
+    return { novelty, specificity, clarity };
+  },
+  z
+    .object({
+      novelty: signalLevelEnum.optional(),
+      specificity: signalLevelEnum.optional(),
+      clarity: signalLevelEnum.optional(),
+    })
+    .optional(),
+);
+
+const statusSchema = z.preprocess((val) => {
+  if (typeof val !== "string") {
+    return val;
+  }
+  const s = val.trim().toLowerCase().replace(/\s+/g, "_");
+  if (s === "notfound") {
+    return "not_found";
+  }
+  return s;
+}, z.enum(["found", "partial", "not_found"]));
+
+/**
+ * Map legacy / sloppy model shapes before strict validation.
+ * (Models often emit `variable` + `value_summary` or a string for `what_it_does`.)
+ */
+function migrateLegacyExtractedRow(raw: unknown): unknown {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return raw;
+  }
+  const o = { ...(raw as Record<string, unknown>) };
+
+  if (o.entity === undefined || o.entity === null || String(o.entity).trim() === "") {
+    if (typeof o.variable === "string" && o.variable.trim()) {
+      o.entity = o.variable.trim();
+    } else if (o.variable != null && String(o.variable).trim()) {
+      o.entity = String(o.variable).trim();
+    }
+  } else {
+    o.entity = String(o.entity).trim();
+  }
+
+  const hasWhat = o.what_it_does !== undefined && o.what_it_does !== null;
+  const whatArr = hasWhat ? toStringList(o.what_it_does) : [];
+  if (whatArr.length === 0 && typeof o.value_summary === "string" && o.value_summary.trim()) {
+    o.what_it_does = [o.value_summary.trim()];
+  }
+
+  if (typeof o.supporting_snippet === "string" && o.supporting_snippet.trim()) {
+    const ex = toStringList(o.evidence_snippets);
+    o.evidence_snippets = [...ex, o.supporting_snippet.trim()].slice(0, LIST_MAX);
+  }
+
+  delete o.variable;
+  delete o.value_summary;
+  delete o.supporting_snippet;
+
+  if (!o.entity || String(o.entity).trim() === "") {
+    o.entity = "Unnamed entity";
+  }
+
+  return o;
+}
+
+const extractedKeyDatumInner = z.object({
+  entity: z.string().min(1),
+  type: z.preprocess(
+    (v) =>
+      v === undefined || v === null ? undefined : String(v).trim() || undefined,
+    z.string().optional(),
+  ),
+  what_it_does: z.preprocess((val) => toStringList(val), z.array(z.string()).max(LIST_MAX)),
+  how_it_works: optionalStringList(),
+  target_users: optionalStringList(),
+  use_cases: optionalStringList(),
+  differentiation_signals: optionalStringList(),
+  key_features: optionalStringList(),
+  evidence_snippets: optionalStringList(),
+  signals: signalsSchema,
+  status: statusSchema,
+  source_url: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() ? v.trim() : undefined),
+    z.string().optional(),
+  ),
 });
 
+/** Zod schema for one extracted entity row (shared with API validators). */
+export const extractedKeyDatumZod = z.preprocess(
+  migrateLegacyExtractedRow,
+  extractedKeyDatumInner,
+);
+
 const extractionSchema = z.object({
-  extracted_key_data: z.array(keyDatumSchema).max(24),
+  extracted_key_data: z.preprocess((v) => {
+    if (v === undefined || v === null) {
+      return [];
+    }
+    if (!Array.isArray(v)) {
+      return [];
+    }
+    return v.filter((x) => x !== null && typeof x === "object" && !Array.isArray(x));
+  }, z.array(extractedKeyDatumZod).max(32)),
 });
 
 function normalizeUrl(u: string): string {
@@ -146,16 +303,21 @@ function clampDatumsToUrls(data: ExtractedKeyDatum[], allowed: Set<string>): Ext
   });
 }
 
-const AGENT6_EXTRACT_SYSTEM = `You are Agent 6 — Phase 2 web research executor.
+const AGENT6_EXTRACT_SYSTEM = `You are Agent 6 — Phase 2 web research executor (search already ran).
 
-You receive search hit snippets (URL, title, excerpt). Map findings to the task's variables_to_find.
+You receive search hit snippets (URL, title, excerpt). Emit structured extracted_key_data: one object per distinct entity/signal worth tracking. Tie content to research_task (variables_to_find, goal, method_instructions) but preserve entity names from sources.
 
 Rules:
-- extracted_key_data.variable should match or clearly correspond to a named variable from the task when possible.
-- status: found = direct support; partial = weak or indirect; not_found = no support in the hits.
-- value_summary: short factual statement (not a URL).
-- supporting_snippet: quote or paraphrase grounded in the provided excerpt text only.
-- source_url: MUST be copied exactly from the provided hit URLs list when you cite a source. If unsure, omit source_url.`;
+- Do not compress into a single sentence. Use atomic bullet-like strings in the string array fields (what_it_does, how_it_works, use_cases, differentiation_signals, key_features, evidence_snippets).
+- Do not summarize or generalize away concrete mechanisms, workflows, numbers, or phrasing from excerpts.
+- Remove marketing fluff; keep technical or operational detail.
+- Do not rank, filter, or judge importance in prose (no "most important").
+- Preserve differentiation: do not merge distinct products/topics into one entity unless they are the same named thing.
+- The same entity may appear in multiple rows if signals are distinct and splitting avoids lossy merging.
+- status: found = direct support in excerpts; partial = weak/indirect; not_found = no support in hits.
+- source_url: MUST match a hit URL exactly when you cite that hit; otherwise omit.
+- what_it_does should usually be non-empty for found/partial; for not_found you may use an empty array or a single "No excerpt support" line.
+- Optional signals.novelty | specificity | clarity are coarse hints only (high|medium|low).`;
 
 function buildExtractionUserMessage(
   task: Agent7ResearchTask,
@@ -276,10 +438,22 @@ export async function runAgent6ResearchTask(input: {
       });
       extracted_key_data = clampDatumsToUrls(object.extracted_key_data, allowedUrls);
     } catch (e) {
-      if (e instanceof NoObjectGeneratedError) {
-        throw new Agent6ResearchTaskError("Agent 6 extraction did not return valid structured output.", {
-          cause: e,
-        });
+      if (NoObjectGeneratedError.isInstance(e)) {
+        const bits: string[] = [];
+        if (e.cause instanceof Error) {
+          bits.push(e.cause.message);
+        }
+        if (typeof e.text === "string" && e.text.length > 0) {
+          bits.push(`model_output: ${e.text.length > 1200 ? `${e.text.slice(0, 1200)}…` : e.text}`);
+        }
+        if (e.finishReason) {
+          bits.push(`finish_reason: ${e.finishReason}`);
+        }
+        const detail = bits.length ? ` ${bits.join(" | ")}` : "";
+        throw new Agent6ResearchTaskError(
+          `Agent 6 extraction did not return valid structured output.${detail}`,
+          { cause: e },
+        );
       }
       const msg = e instanceof Error ? e.message : "Agent 6 extraction failed";
       throw new Agent6ResearchTaskError(msg, e instanceof Error ? { cause: e } : undefined);

@@ -230,13 +230,30 @@ export interface Agent7OrchestrateResult {
 /** Input to Phase 2 research-task runners; same shape as **`assignments[].research_task`**. */
 export type ResearchTaskInput = Agent7ResearchTask;
 
-/** One mapped datum from web search → **`variables_to_find`** (Agent 6 Phase 2). */
+/** Signal levels for extraction quality hints (Agent 6 Phase 2). */
+export type Agent6ExtractSignalLevel = "high" | "medium" | "low";
+
+/**
+ * One structured extraction row from web search (Agent 6 Phase 2).
+ * Atomic bullet-like strings; avoid single-sentence compression.
+ */
 export interface ExtractedKeyDatum {
-  variable: string;
+  entity: string;
+  type?: string;
+  what_it_does: string[];
+  how_it_works?: string[];
+  target_users?: string[];
+  use_cases?: string[];
+  differentiation_signals?: string[];
+  key_features?: string[];
+  evidence_snippets?: string[];
+  signals?: {
+    novelty?: Agent6ExtractSignalLevel;
+    specificity?: Agent6ExtractSignalLevel;
+    clarity?: Agent6ExtractSignalLevel;
+  };
   status: "found" | "partial" | "not_found";
-  value_summary: string;
-  supporting_snippet?: string;
-  /** Must be one of the URLs returned by search for this run (enforced server-side when possible). */
+  /** Must match a returned hit URL when present (enforced server-side when possible). */
   source_url?: string;
 }
 
@@ -275,6 +292,58 @@ export interface Agent3TaskSourceRow {
   data_noted: string;
 }
 
+/** Progress / stagnation signals across Agent 3 ↔ Agent 6 iterations. */
+export interface Agent3ProgressMetrics {
+  iterations_so_far: number;
+  /** New signals or concepts vs all prior iterations (not raw entity count). */
+  new_info_count: number;
+  /** Share of this iteration repeating the immediately previous iteration. */
+  overlap_rate: number;
+  /** Share of this iteration repeating anything seen in any prior iteration. */
+  cumulative_overlap_rate: number;
+  /** Share of sources in this iteration not seen before. */
+  source_novelty: number;
+  trend: "increasing" | "stable" | "declining";
+}
+
+/** Entity bookkeeping for query strategy (Agent 3 Phase 2). */
+export interface Agent3EntityTracking {
+  total_entities: number;
+  new_entities: string[];
+  repeated_entities: string[];
+  high_relevance_entities: string[];
+  high_rabbithole_entities: string[];
+}
+
+/** Decision block for research_log / unified Agent 3 (mirrors research_log[].decision). */
+export interface Agent3ResearchDecision {
+  needs_further_search: boolean;
+  reason: string;
+  suggested_direction?: string;
+  suggested_queries?: string[];
+}
+
+/** Per-iteration memory for Agent 3 Phase 2 (primary context for re-planning). */
+export interface Agent3ResearchLogEntry {
+  iteration: number;
+  queries: string[];
+  a6_raw_findings: Pick<Agent6ResearchRunResult, "queries_used" | "source_urls" | "extracted_key_data">;
+  scan: {
+    sources_and_data: Agent3TaskSourceRow[];
+    observations: string[];
+    emerging_patterns: string[];
+  };
+  analysis: {
+    analysis_points: string[];
+    task_gaps: string[];
+    assumptions: Agent3TaskAssumption[];
+    confidence: Agent3TaskConfidence;
+  };
+  progress: Agent3ProgressMetrics;
+  decision: Agent3ResearchDecision;
+  insight: string;
+}
+
 /** Agent 3 Phase 2 — one research task conclusion for Agent 7. */
 export interface Agent3TaskResult {
   sources_and_data: Agent3TaskSourceRow[];
@@ -286,6 +355,32 @@ export interface Agent3TaskResult {
   /** When true, orchestration may schedule another plan → Agent 6 → review round. */
   needs_further_search?: boolean;
   suggested_queries?: string[];
+  progress_metrics?: Agent3ProgressMetrics;
+  entity_tracking?: Agent3EntityTracking;
+  /**
+   * Scan layer: observations + emerging_patterns (review pass). `sources_and_data` stays top-level;
+   * when assembling research_log.scan, copy sources_and_data into the log row.
+   */
+  scan?: {
+    observations: string[];
+    emerging_patterns: string[];
+  };
+  /** How understanding of the domain changed this iteration (research_log.insight). */
+  insight?: string;
+  /** Full decision mirror for orchestration / research_log.decision. */
+  decision?: Agent3ResearchDecision;
+}
+
+/**
+ * Unified Agent 3 Phase 2 response: next Agent 6 assignment (flat plan fields) plus
+ * synthesis / review fields after **`agent6_result`** is available.
+ */
+export interface Agent3Phase2Response extends Agent3TaskResult {
+  plan_summary: string;
+  search_objective: string;
+  search_queries: string[];
+  extraction_notes?: string;
+  open_questions?: string[];
 }
 
 /**
@@ -308,6 +403,13 @@ export interface Agent3ResearchPlan {
   open_questions?: string[];
 }
 
+/** Legacy prior-round shape (plan → Agent 6 → review); newest last. */
+export interface Agent36PriorRound {
+  agent3_plan: Agent3ResearchPlan;
+  agent6_result: Agent6ResearchRunResult;
+  agent3_review: Agent3TaskResult;
+}
+
 /** One full plan → search → review cycle inside the A3↔A6 loop. */
 export interface Agent36LoopIterationTrace {
   agent3_plan: Agent3ResearchPlan;
@@ -323,6 +425,8 @@ export interface Agent36ResearchLoopResponse {
   agent6_runs: Agent6ResearchRunResult[];
   /** Ordered rounds: plan, then Agent 6 output, then review. */
   iteration_trace: Agent36LoopIterationTrace[];
+  /** Cumulative research memory (newest last), echoed for orchestration / sandbox. */
+  research_log: Agent3ResearchLogEntry[];
   iterations: number;
   stopped_reason: "sufficient" | "max_iterations" | "min_confidence";
   /** Echo: request `min_confidence` (0–1) when the client sent it. */
