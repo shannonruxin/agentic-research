@@ -33,9 +33,11 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# Local secrets and overrides (keep out of git)
 .env.local
+.env.*.local
+# `.env` at repo root may be committed: use it for shared non-secrets (e.g. CLERK_JWT_ISSUER_DOMAIN).
+# Put API keys in `.env.local` only.
 
 # vercel
 .vercel
