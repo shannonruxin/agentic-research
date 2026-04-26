@@ -214,6 +214,7 @@ export function ResearchChatView() {
     setSessionPreferences([]);
   }
 
+  
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-50">
       <div className="shrink-0 border-b border-zinc-200 bg-white px-4 py-3 sm:px-6">
