@@ -28,8 +28,20 @@ const bodySchema = z.object({
   max_outer_iterations: z.number().int().min(1).max(50).optional(),
   min_confidence: z.number().min(0).max(1).optional(),
   max_iterations_3_6: z.number().int().min(1).max(20).optional(),
-  // New field
+  // New fields
   session_preferences: z.array(sessionPreferenceSchema).optional(),
+  pipeline_config: z
+    .object({
+      max_rounds: z.number().int().min(1).max(5).optional(),
+      max_workers_concurrent: z.number().int().min(1).max(6).optional(),
+      worker_stagger_ms: z.number().int().min(0).max(10000).optional(),
+      max_worker_steps: z.number().int().min(1).max(10).optional(),
+      max_tasks_per_round: z.number().int().min(1).max(12).optional(),
+      orchestrator_temperature: z.number().min(0).max(1).optional(),
+      worker_temperature: z.number().min(0).max(1).optional(),
+      deliver_max_tokens: z.number().int().min(4000).max(32000).optional(),
+    })
+    .optional(),
 });
 
 export const maxDuration = 300;
@@ -62,6 +74,7 @@ export async function POST(req: Request) {
       key_findings: b.key_findings,
       dimensions: b.dimensions,
       session_preferences: b.session_preferences,
+      pipeline_config: b.pipeline_config,
     });
 
     if (!result.success) {

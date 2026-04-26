@@ -216,5 +216,24 @@
         "otherwise": "return partial assessment with unknowns"
       }
     }
-  ]
+  ],
+  "user_preferences": {
+    "global": [],
+    "conditional": [],
+    "pending_promotions": [
+      {
+        "pattern": "user requests 'full eval' indicating desire for comprehensive analysis across all relevant dimensions",
+        "occurrences": [
+          {
+            "date": "2026-04-26",
+            "context": "Conduct comprehensive due diligence on AlphaSwift to evaluate its investment potential across business fundamentals, competitive positioning, technology differentiation, and market opportunity"
+          }
+        ],
+        "times_seen": 1,
+        "promote_threshold": 3,
+        "candidate_rule": "conduct comprehensive due diligence covering all key investment evaluation dimensions",
+        "candidate_scope": "global"
+      }
+    ]
+  }
 }

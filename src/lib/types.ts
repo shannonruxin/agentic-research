@@ -556,13 +556,77 @@ export interface PreferencesAgentOutput {
   session_preference?: SessionPreference;
 }
 
+// ---------------------------------------------------------------------------
+// Pipeline Config
+// ---------------------------------------------------------------------------
+
+export interface PipelineConfig {
+  max_rounds: number;
+  max_workers_concurrent: number;
+  worker_stagger_ms: number;
+  max_worker_steps: number;
+  max_tasks_per_round: number;
+  orchestrator_temperature: number;
+  worker_temperature: number;
+  deliver_max_tokens: number;
+}
+
+export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = {
+  max_rounds: 5,
+  max_workers_concurrent: 2,
+  worker_stagger_ms: 2000,
+  max_worker_steps: 5,
+  max_tasks_per_round: 8,
+  orchestrator_temperature: 0.2,
+  worker_temperature: 0.2,
+  deliver_max_tokens: 16_000,
+};
+
+// ---------------------------------------------------------------------------
+// Orchestrator Types
+// ---------------------------------------------------------------------------
+
+export interface OrchestratorPlanOutput {
+  objective_understanding: string;
+  investment_thesis_draft: string;
+  dimensions: Agent7Dimension[];
+  known_gaps: Agent7KnownGapGroup[];
+  tasks: PlannerResearchTask[];
+  execution_strategy: "all_parallel" | "two_phase";
+  profile_task_id?: string;
+  working_notes: string;
+}
+
+export interface OrchestratorReviewOutput {
+  working_notes: string;
+  key_findings: Record<string, unknown>;
+  coverage_assessment: CoverageAssessment[];
+  dimensions: Agent7Dimension[];
+  known_gaps: Agent7KnownGapGroup[];
+  contradictions: string[];
+  connections: string[];
+  decision: { action: "dig_deeper"; tasks: PlannerResearchTask[] } | { action: "deliver" };
+}
+
+export interface OrchestratorDeliverOutput {
+  user_facing_document: string;
+  key_findings: Record<string, unknown>;
+  dimensions: Agent7Dimension[];
+  known_gaps: Agent7KnownGapGroup[];
+  findings_summary: { key: string; value: unknown };
+  investment_thesis: string;
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline Steps & Result
+// ---------------------------------------------------------------------------
+
 export type ParallelPipelineStep =
   | { kind: "intent"; result: IntentClassification }
-  | { kind: "planner"; result: PlannerOutput }
-  | { kind: "worker"; task_id: string; result: WorkerOutput }
-  | { kind: "synthesizer"; result: SynthesizerOutput }
-  | { kind: "dig_deeper_worker"; task_id: string; round: number; result: WorkerOutput }
-  | { kind: "dig_deeper_synthesizer"; round: number; result: SynthesizerOutput }
+  | { kind: "orchestrator_plan"; result: OrchestratorPlanOutput }
+  | { kind: "worker"; task_id: string; round: number; result: WorkerOutput }
+  | { kind: "orchestrator_review"; round: number; result: OrchestratorReviewOutput }
+  | { kind: "orchestrator_deliver"; result: OrchestratorDeliverOutput }
   | { kind: "preferences"; result: PreferencesAgentOutput };
 
 export type ParallelPipelineResult =

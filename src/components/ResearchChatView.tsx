@@ -5,7 +5,7 @@ import type { Agent7Dimension, Agent7KnownGapGroup } from "@/lib/types";
 
 type ResearchChatMessage =
   | { role: "user"; content: string }
-  | { role: "assistant"; content: string; preference_notification?: string };
+  | { role: "assistant"; content: string; preference_notification?: string; duration?: string };
 
 type ResearchApiOk = {
   document_markdown: string;
@@ -78,6 +78,15 @@ export function ResearchChatView() {
     { rule: string; source: string; added: string }[]
   >([]);
 
+  const [maxRounds, setMaxRounds] = useState("5");
+  const [maxWorkersConcurrent, setMaxWorkersConcurrent] = useState("2");
+  const [workerStaggerMs, setWorkerStaggerMs] = useState("2000");
+  const [maxWorkerSteps, setMaxWorkerSteps] = useState("5");
+  const [maxTasksPerRound, setMaxTasksPerRound] = useState("8");
+  const [orchestratorTemp, setOrchestratorTemp] = useState("0.2");
+  const [workerTemp, setWorkerTemp] = useState("0.2");
+  const [deliverMaxTokens, setDeliverMaxTokens] = useState("16000");
+
   async function runSend() {
     const text = draft.trim();
     if (!text || loading) return;
@@ -113,6 +122,26 @@ export function ResearchChatView() {
     if (kfValue && Object.keys(kfValue).length) body.key_findings = kfValue;
     if (sessionPreferences.length > 0) body.session_preferences = sessionPreferences;
 
+    const pipelineCfg: Record<string, number> = {};
+    const mrVal = Number.parseInt(maxRounds, 10);
+    if (!Number.isNaN(mrVal) && mrVal >= 1 && mrVal <= 5) pipelineCfg.max_rounds = mrVal;
+    const mwcVal = Number.parseInt(maxWorkersConcurrent, 10);
+    if (!Number.isNaN(mwcVal) && mwcVal >= 1) pipelineCfg.max_workers_concurrent = mwcVal;
+    const wsVal = Number.parseInt(workerStaggerMs, 10);
+    if (!Number.isNaN(wsVal) && wsVal >= 0) pipelineCfg.worker_stagger_ms = wsVal;
+    const mwsVal = Number.parseInt(maxWorkerSteps, 10);
+    if (!Number.isNaN(mwsVal) && mwsVal >= 1) pipelineCfg.max_worker_steps = mwsVal;
+    const mtrVal = Number.parseInt(maxTasksPerRound, 10);
+    if (!Number.isNaN(mtrVal) && mtrVal >= 1) pipelineCfg.max_tasks_per_round = mtrVal;
+    const otVal = Number.parseFloat(orchestratorTemp);
+    if (!Number.isNaN(otVal)) pipelineCfg.orchestrator_temperature = otVal;
+    const wtVal = Number.parseFloat(workerTemp);
+    if (!Number.isNaN(wtVal)) pipelineCfg.worker_temperature = wtVal;
+    const dmtVal = Number.parseInt(deliverMaxTokens, 10);
+    if (!Number.isNaN(dmtVal) && dmtVal >= 4000) pipelineCfg.deliver_max_tokens = dmtVal;
+    if (Object.keys(pipelineCfg).length > 0) body.pipeline_config = pipelineCfg;
+
+    const t0 = performance.now();
     try {
       const res = await fetch("/api/research-chat", {
         method: "POST",
@@ -120,12 +149,14 @@ export function ResearchChatView() {
         body: JSON.stringify(body),
       });
       const data: unknown = await res.json().catch(() => ({}));
+      const totalSec = Math.floor((performance.now() - t0) / 1000);
+      const elapsed = `${Math.floor(totalSec / 60)}m${totalSec % 60}s`;
       if (!res.ok) {
         const err =
           typeof data === "object" && data !== null && "error" in data
             ? String((data as { error: unknown }).error)
             : "Request failed";
-        setError(err);
+        setError(`${err} (${elapsed})`);
         setMessages((m) => m.slice(0, -1));
         return;
       }
@@ -145,6 +176,7 @@ export function ResearchChatView() {
           role: "assistant",
           content: ok.document_markdown,
           preference_notification: ok.preference_notification,
+          duration: elapsed,
         },
       ]);
     } catch (e) {
@@ -208,6 +240,9 @@ export function ResearchChatView() {
             >
               <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{m.content}</p>
             </div>
+            {m.role === "assistant" && m.duration ? (
+              <p className="mr-auto mt-1 text-[11px] text-zinc-400">{m.duration}</p>
+            ) : null}
             {m.role === "assistant" && m.preference_notification ? (
               <div className="mr-auto mt-1.5 max-w-[min(100%,48rem)] rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs text-amber-800">
                 <span className="font-medium">Preference learned: </span>
@@ -268,6 +303,41 @@ export function ResearchChatView() {
               value={knownGapsText}
               onChange={(e) => setKnownGapsText(e.target.value)}
             />
+            <p className="font-semibold text-zinc-800">Pipeline Config</p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-4">
+              <label className="text-zinc-600">
+                max_rounds
+                <input type="text" inputMode="numeric" className="mt-0.5 block w-full rounded border border-zinc-200 bg-zinc-50 p-1.5 font-mono" value={maxRounds} onChange={(e) => setMaxRounds(e.target.value)} />
+              </label>
+              <label className="text-zinc-600">
+                max_workers
+                <input type="text" inputMode="numeric" className="mt-0.5 block w-full rounded border border-zinc-200 bg-zinc-50 p-1.5 font-mono" value={maxWorkersConcurrent} onChange={(e) => setMaxWorkersConcurrent(e.target.value)} />
+              </label>
+              <label className="text-zinc-600">
+                stagger_ms
+                <input type="text" inputMode="numeric" className="mt-0.5 block w-full rounded border border-zinc-200 bg-zinc-50 p-1.5 font-mono" value={workerStaggerMs} onChange={(e) => setWorkerStaggerMs(e.target.value)} />
+              </label>
+              <label className="text-zinc-600">
+                worker_steps
+                <input type="text" inputMode="numeric" className="mt-0.5 block w-full rounded border border-zinc-200 bg-zinc-50 p-1.5 font-mono" value={maxWorkerSteps} onChange={(e) => setMaxWorkerSteps(e.target.value)} />
+              </label>
+              <label className="text-zinc-600">
+                tasks/round
+                <input type="text" inputMode="numeric" className="mt-0.5 block w-full rounded border border-zinc-200 bg-zinc-50 p-1.5 font-mono" value={maxTasksPerRound} onChange={(e) => setMaxTasksPerRound(e.target.value)} />
+              </label>
+              <label className="text-zinc-600">
+                orch_temp
+                <input type="text" inputMode="decimal" className="mt-0.5 block w-full rounded border border-zinc-200 bg-zinc-50 p-1.5 font-mono" value={orchestratorTemp} onChange={(e) => setOrchestratorTemp(e.target.value)} />
+              </label>
+              <label className="text-zinc-600">
+                worker_temp
+                <input type="text" inputMode="decimal" className="mt-0.5 block w-full rounded border border-zinc-200 bg-zinc-50 p-1.5 font-mono" value={workerTemp} onChange={(e) => setWorkerTemp(e.target.value)} />
+              </label>
+              <label className="text-zinc-600">
+                deliver_tokens
+                <input type="text" inputMode="numeric" className="mt-0.5 block w-full rounded border border-zinc-200 bg-zinc-50 p-1.5 font-mono" value={deliverMaxTokens} onChange={(e) => setDeliverMaxTokens(e.target.value)} />
+              </label>
+            </div>
             {sessionPreferences.length > 0 ? (
               <div className="rounded border border-amber-200 bg-amber-50/50 p-2">
                 <p className="font-medium text-amber-800">Session preferences (learned this chat):</p>

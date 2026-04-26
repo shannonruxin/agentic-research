@@ -50,4 +50,7 @@ next-env.d.ts
 /.clerk/
 
 # workspace files
-workspace/
+/workspace
+/workspace/chat-memory.json
+/workspace/user-output.md
+/workspace/domain-manuals/domain-manual.json

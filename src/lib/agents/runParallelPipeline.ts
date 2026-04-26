@@ -1,7 +1,10 @@
 import { classifyIntent } from "@/lib/agents/intentRouter";
-import { runPlanner } from "@/lib/agents/planner";
+import {
+  orchestratorPlan,
+  orchestratorReview,
+  orchestratorDeliver,
+} from "@/lib/agents/orchestrator";
 import { runWorkersParallel } from "@/lib/agents/researchWorker";
-import { runSynthesizer } from "@/lib/agents/synthesizer";
 import {
   runPreferencesAgent,
   applyPreferencePatch,
@@ -22,13 +25,16 @@ import type {
   Agent7Dimension,
   Agent7KnownGapGroup,
   DomainManualUserPreferences,
+  OrchestratorDeliverOutput,
+  OrchestratorPlanOutput,
+  OrchestratorReviewOutput,
   ParallelPipelineResult,
   ParallelPipelineStep,
+  PipelineConfig,
   SessionPreference,
-  SynthesizerOutput,
   WorkerOutput,
-  PlannerOutput,
 } from "@/lib/types";
+import { DEFAULT_PIPELINE_CONFIG } from "@/lib/types";
 
 export type RunParallelPipelineInput = {
   objective: string;
@@ -39,8 +45,13 @@ export type RunParallelPipelineInput = {
   key_findings?: Record<string, unknown>;
   dimensions?: Agent7Dimension[];
   session_preferences?: SessionPreference[];
-  max_rounds?: number;
+  pipeline_config?: Partial<PipelineConfig>;
 };
+
+function resolveConfig(partial?: Partial<PipelineConfig>): PipelineConfig {
+  if (!partial) return { ...DEFAULT_PIPELINE_CONFIG };
+  return { ...DEFAULT_PIPELINE_CONFIG, ...partial };
+}
 
 async function persistParallelTurn(input: {
   question: string;
@@ -65,10 +76,11 @@ async function persistParallelTurn(input: {
           chat_reply: step.result.chat_reply,
         });
         break;
-      case "planner":
+      case "orchestrator_plan":
         pipeline_trace.push({
-          step: "planner",
+          step: "orchestrator_plan",
           objective_understanding: step.result.objective_understanding,
+          investment_thesis_draft: step.result.investment_thesis_draft,
           execution_strategy: step.result.execution_strategy,
           profile_task_id: step.result.profile_task_id,
           dimensions: step.result.dimensions,
@@ -82,13 +94,13 @@ async function persistParallelTurn(input: {
             search_guidance: t.search_guidance,
             variables_to_find: t.variables_to_find,
           })),
-          reasoning: step.result.reasoning,
+          working_notes: step.result.working_notes,
         });
         break;
       case "worker":
         pipeline_trace.push({
           step: "worker",
-          round: 1,
+          round: step.round,
           task_id: step.task_id,
           dimension: step.result.dimension,
           factor: step.result.factor,
@@ -101,48 +113,32 @@ async function persistParallelTurn(input: {
           rabbithole_leads: step.result.rabbithole_leads,
         });
         break;
-      case "synthesizer":
+      case "orchestrator_review":
         pipeline_trace.push({
-          step: "synthesizer",
-          round: 1,
-          should_continue: step.result.should_continue,
-          coverage_assessment: step.result.coverage_assessment,
-          dig_deeper_count: step.result.dig_deeper.length,
-          dig_deeper: step.result.dig_deeper.map((t) => ({
-            task_id: t.task_id,
-            dimension: t.dimension,
-            factor: t.factor,
-            goal: t.goal,
-          })),
+          step: "orchestrator_review",
+          round: step.round,
+          working_notes: step.result.working_notes,
           key_findings: step.result.key_findings,
+          coverage_assessment: step.result.coverage_assessment,
+          contradictions: step.result.contradictions,
+          connections: step.result.connections,
+          decision_action: step.result.decision.action,
+          dig_deeper_tasks: step.result.decision.action === "dig_deeper"
+            ? step.result.decision.tasks.map((t) => ({
+                task_id: t.task_id,
+                dimension: t.dimension,
+                factor: t.factor,
+                goal: t.goal,
+              }))
+            : undefined,
           dimensions: step.result.dimensions,
           known_gaps: step.result.known_gaps,
-          findings_summary: step.result.findings_summary,
         });
         break;
-      case "dig_deeper_worker":
+      case "orchestrator_deliver":
         pipeline_trace.push({
-          step: "dig_deeper_worker",
-          round: step.round,
-          task_id: step.task_id,
-          dimension: step.result.dimension,
-          factor: step.result.factor,
-          confidence: step.result.confidence,
-          summary: step.result.summary,
-          sources: step.result.sources,
-          extracted_data: step.result.extracted_data,
-          gaps_remaining: step.result.gaps_remaining,
-          search_queries_used: step.result.search_queries_used,
-          rabbithole_leads: step.result.rabbithole_leads,
-        });
-        break;
-      case "dig_deeper_synthesizer":
-        pipeline_trace.push({
-          step: "dig_deeper_synthesizer",
-          round: step.round,
-          should_continue: step.result.should_continue,
-          coverage_assessment: step.result.coverage_assessment,
-          dig_deeper_count: step.result.dig_deeper.length,
+          step: "orchestrator_deliver",
+          investment_thesis: step.result.investment_thesis,
           key_findings: step.result.key_findings,
           dimensions: step.result.dimensions,
           known_gaps: step.result.known_gaps,
@@ -178,6 +174,7 @@ export async function runParallelPipeline(
   input: RunParallelPipelineInput,
 ): Promise<ParallelPipelineResult> {
   const steps: ParallelPipelineStep[] = [];
+  const config = resolveConfig(input.pipeline_config);
 
   const chatMemoryRaw = await readWorkspaceText(CHAT_MEMORY_FILE);
   const conversationContext = buildCompactResearchMemoryForAgent7Prompt(chatMemoryRaw, {
@@ -185,6 +182,7 @@ export async function runParallelPipeline(
     minOlderTurnsForSummaryOnly: 1,
   });
 
+  // --- Intent classification ---
   let intent;
   try {
     intent = await classifyIntent(input.objective, conversationContext || undefined);
@@ -198,6 +196,7 @@ export async function runParallelPipeline(
   const sessionPrefs = input.session_preferences ?? [];
   const userPrefsSummary = extractApplicablePreferences(userPrefs, input.objective, sessionPrefs);
 
+  // --- Chat fast paths ---
   if (intent.intent === "chat" && !intent.has_preference_signal) {
     return {
       success: true,
@@ -258,82 +257,115 @@ export async function runParallelPipeline(
     }
   }
 
-  const plannerResult = await runPlanner({
-    objective: input.objective,
-    subject_scope: input.subject_scope,
-    domain_manual,
-    conversation_context: conversationContext,
-    user_preferences_summary: userPrefsSummary,
-    research_hygiene: input.research_hygiene,
-    prior_key_findings: input.key_findings,
-    prior_dimensions: input.dimensions,
-    prior_known_gaps: input.known_gaps_seed,
-  });
-  steps.push({ kind: "planner", result: plannerResult });
+  // --- Research pipeline: Orchestrator → Workers → Review loop → Deliver ---
 
-  const maxRounds = Math.min(input.max_rounds ?? 3, 5);
-  let allWorkerResults: WorkerOutput[] = [];
-  let synthesized: SynthesizerOutput | undefined;
-  let round = 0;
-  let tasksForRound = plannerResult.tasks;
-
-  while (true) {
-    round++;
-
-    const roundWorkerResults = await runWorkersParallel({
-      tasks: tasksForRound,
-      domain_manual,
-      research_hygiene: input.research_hygiene,
-      user_preferences_summary: userPrefsSummary,
-      execution_strategy: round === 1 ? plannerResult.execution_strategy : "all_parallel",
-      profile_task_id: round === 1 ? plannerResult.profile_task_id : undefined,
-    });
-
-    for (const wr of roundWorkerResults) {
-      if (round === 1) {
-        steps.push({ kind: "worker", task_id: wr.task_id, result: wr });
-      } else {
-        steps.push({ kind: "dig_deeper_worker", task_id: wr.task_id, round, result: wr });
-      }
-    }
-    allWorkerResults = [...allWorkerResults, ...roundWorkerResults];
-
-    synthesized = await runSynthesizer({
+  let planResult: OrchestratorPlanOutput;
+  try {
+    planResult = await orchestratorPlan({
       objective: input.objective,
       subject_scope: input.subject_scope,
       domain_manual,
-      worker_results: allWorkerResults,
+      conversation_context: conversationContext,
       user_preferences_summary: userPrefsSummary,
       research_hygiene: input.research_hygiene,
       prior_key_findings: input.key_findings,
       prior_dimensions: input.dimensions,
       prior_known_gaps: input.known_gaps_seed,
-      round,
-      max_rounds: maxRounds,
+      config,
     });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { success: false, error: `[orchestrator_plan] ${msg}`, steps };
+  }
+  steps.push({ kind: "orchestrator_plan", result: planResult });
 
-    if (round === 1) {
-      steps.push({ kind: "synthesizer", result: synthesized });
-    } else {
-      steps.push({ kind: "dig_deeper_synthesizer", round, result: synthesized });
+  const maxRounds = Math.min(config.max_rounds, 5);
+  let allWorkerResults: WorkerOutput[] = [];
+  let lastReview: OrchestratorReviewOutput | undefined;
+  let round = 0;
+  let tasksForRound = planResult.tasks.slice(0, config.max_tasks_per_round);
+
+  while (true) {
+    round++;
+
+    let roundWorkerResults: WorkerOutput[];
+    try {
+      roundWorkerResults = await runWorkersParallel({
+        tasks: tasksForRound,
+        domain_manual,
+        research_hygiene: input.research_hygiene,
+        user_preferences_summary: userPrefsSummary,
+        execution_strategy: round === 1 ? planResult.execution_strategy : "all_parallel",
+        profile_task_id: round === 1 ? planResult.profile_task_id : undefined,
+        max_concurrent: config.max_workers_concurrent,
+        stagger_ms: config.worker_stagger_ms,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { success: false, error: `[workers round ${round}] ${msg}`, steps };
     }
 
-    if (!synthesized.should_continue || round >= maxRounds || synthesized.dig_deeper.length === 0) {
+    for (const wr of roundWorkerResults) {
+      steps.push({ kind: "worker", task_id: wr.task_id, round, result: wr });
+    }
+    allWorkerResults = [...allWorkerResults, ...roundWorkerResults];
+
+    let review: OrchestratorReviewOutput;
+    try {
+      review = await orchestratorReview({
+        objective: input.objective,
+        subject_scope: input.subject_scope,
+        user_preferences_summary: userPrefsSummary,
+        plan: planResult,
+        all_worker_results: allWorkerResults,
+        round,
+        max_rounds: maxRounds,
+        prior_review: lastReview,
+        config,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { success: false, error: `[orchestrator_review round ${round}] ${msg}`, steps };
+    }
+    steps.push({ kind: "orchestrator_review", round, result: review });
+    lastReview = review;
+
+    if (review.decision.action === "deliver" || round >= maxRounds) {
       break;
     }
 
-    tasksForRound = synthesized.dig_deeper;
+    tasksForRound = review.decision.tasks.slice(0, config.max_tasks_per_round);
+    if (tasksForRound.length === 0) break;
   }
 
-  await writeWorkspaceText(USER_OUTPUT_FILE, synthesized!.user_facing_document);
+  let delivered: OrchestratorDeliverOutput;
+  try {
+    delivered = await orchestratorDeliver({
+      objective: input.objective,
+      subject_scope: input.subject_scope,
+      user_preferences_summary: userPrefsSummary,
+      plan: planResult,
+      all_worker_results: allWorkerResults,
+      final_review: lastReview!,
+      rounds_completed: round,
+      config,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { success: false, error: `[orchestrator_deliver] ${msg}`, steps };
+  }
+  steps.push({ kind: "orchestrator_deliver", result: delivered });
+
+  await writeWorkspaceText(USER_OUTPUT_FILE, delivered.user_facing_document);
   await persistParallelTurn({
     question: input.objective,
-    documentMarkdown: synthesized!.user_facing_document,
-    findingsSummary: synthesized!.findings_summary,
+    documentMarkdown: delivered.user_facing_document,
+    findingsSummary: delivered.findings_summary,
     steps,
     roundsCompleted: round,
   });
 
+  // --- Preferences (async, non-blocking) ---
   let prefNotification: string | undefined;
   let newSessionPrefs = sessionPrefs;
 
@@ -343,7 +375,7 @@ export async function runParallelPipeline(
         user_message: input.objective,
         conversation_context: conversationContext,
         current_preferences: userPrefs,
-        objective_context: plannerResult.objective_understanding,
+        objective_context: planResult.objective_understanding,
       });
       steps.push({ kind: "preferences", result: prefResult });
       prefNotification = prefResult.notification;
@@ -361,10 +393,10 @@ export async function runParallelPipeline(
   return {
     success: true,
     stopped: "user_deliver",
-    document_markdown: synthesized!.user_facing_document,
-    key_findings: synthesized!.key_findings,
-    dimensions: synthesized!.dimensions,
-    known_gaps: synthesized!.known_gaps,
+    document_markdown: delivered.user_facing_document,
+    key_findings: delivered.key_findings,
+    dimensions: delivered.dimensions,
+    known_gaps: delivered.known_gaps,
     chat_memory_path: CHAT_MEMORY_FILE,
     user_output_path: USER_OUTPUT_FILE,
     preference_notification: prefNotification,

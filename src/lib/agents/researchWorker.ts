@@ -188,17 +188,30 @@ export async function runResearchWorker(input: {
 
   const taskPrompt = buildWorkerPrompt(input);
 
-  const result = await generateText({
-    model,
-    tools: { webSearch },
-    stopWhen: stepCountIs(5),
-    system: WORKER_SYSTEM,
-    prompt: taskPrompt,
-    temperature: 0.2,
-    maxOutputTokens: 4096,
-  });
-
-  return parseWorkerOutput(result.text, input.task);
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const result = await generateText({
+        model,
+        tools: { webSearch },
+        stopWhen: stepCountIs(5),
+        system: WORKER_SYSTEM,
+        prompt: taskPrompt,
+        temperature: 0.2,
+        maxOutputTokens: 4096,
+      });
+      return parseWorkerOutput(result.text, input.task);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg.toLowerCase().includes("too many requests") && attempt < maxAttempts) {
+        const backoff = attempt * 5000;
+        await new Promise((r) => setTimeout(r, backoff));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error("Worker exhausted retries");
 }
 
 const MAX_CONCURRENT_WORKERS = 2;
@@ -236,8 +249,12 @@ export async function runWorkersParallel(input: {
   user_preferences_summary: string;
   execution_strategy: "all_parallel" | "two_phase";
   profile_task_id?: string;
+  max_concurrent?: number;
+  stagger_ms?: number;
 }): Promise<WorkerOutput[]> {
-  const { tasks, execution_strategy, profile_task_id, ...common } = input;
+  const { tasks, execution_strategy, profile_task_id, max_concurrent, stagger_ms, ...common } = input;
+  const concurrency = max_concurrent ?? MAX_CONCURRENT_WORKERS;
+  const stagger = stagger_ms ?? STAGGER_MS;
 
   if (execution_strategy === "two_phase" && profile_task_id) {
     const profileTask = tasks.find((t) => t.task_id === profile_task_id);
@@ -269,7 +286,7 @@ export async function runWorkersParallel(input: {
         profile_context: profileContext,
       }),
     );
-    const remainingResults = await runWithConcurrencyLimit(fns, MAX_CONCURRENT_WORKERS, STAGGER_MS);
+    const remainingResults = await runWithConcurrencyLimit(fns, concurrency, stagger);
 
     return [profileResult, ...remainingResults];
   }
@@ -282,5 +299,5 @@ export async function runWorkersParallel(input: {
       user_preferences_summary: common.user_preferences_summary,
     }),
   );
-  return runWithConcurrencyLimit(fns, MAX_CONCURRENT_WORKERS, STAGGER_MS);
+  return runWithConcurrencyLimit(fns, concurrency, stagger);
 }

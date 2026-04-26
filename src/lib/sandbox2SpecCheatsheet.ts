@@ -13,7 +13,50 @@ Output (IntentClassification)
 Heuristic path: regex patterns for greetings, meta-questions, research signals, preference signals. If heuristic is confident, returns instantly (<100ms, no LLM call).
 LLM fallback: generateObject with intentClassificationSchema when heuristic is ambiguous.`;
 
-export const PLANNER_CHEATSHEET = `Planner — decompose objective into parallel tasks
+export const ORCHESTRATOR_CHEATSHEET = `Orchestrator (Chief Research Analyst) — single-brain investment analyst
+
+The orchestrator is a senior investment analyst conducting due diligence. It operates in 3 phases:
+
+PLAN Phase (Round 1)
+Input:
+- objective (required) — User's research request.
+- subject_scope (optional) — In-scope subject, out-of-scope rules, disambiguation.
+- conversation_context (optional) — Summary of prior turns.
+- user_preferences_summary — Auto-extracted from domain manual.
+- research_hygiene (optional) — Citation rules.
+- prior_key_findings, prior_dimensions, prior_known_gaps (optional) — From earlier turns.
+
+Output (OrchestratorPlanOutput):
+- objective_understanding — Restatement of the investment question.
+- investment_thesis_draft — Initial hypothesis to test (even if speculative).
+- dimensions — 1–16 thematic lenses (business model, competitive landscape, technology, etc.).
+- known_gaps — Grouped missing info.
+- tasks — 2–12 PlannerResearchTask objects (task_id, dimension, factor, goal, search_guidance, variables_to_find, priority).
+- execution_strategy: "all_parallel" | "two_phase" (two_phase: profile first, then rest).
+- working_notes — Private scratchpad for hypotheses and reasoning.
+
+REVIEW Phase (Round 2+, after workers return)
+Input: objective, plan, all_worker_results, round, max_rounds, prior_review (optional).
+Output (OrchestratorReviewOutput):
+- working_notes — Evolving thesis, contradictions, connections.
+- key_findings — Structured findings by dimension.
+- coverage_assessment — Per-dimension score (0.0–1.0) with reasoning.
+- contradictions — Cross-source/dimension contradictions found.
+- connections — Cross-dimension connections that strengthen/weaken thesis.
+- decision: { action: "dig_deeper", tasks: [...] } | { action: "deliver" }
+  - dig_deeper tasks REFERENCE specific findings (e.g., "revenue dropped 20%, investigate if correlated with CTO departure").
+  - Never repeats failed queries; cross-references, verifies claims, follows rabbithole leads.
+  - Forced to "deliver" on final round.
+
+DELIVER Phase (final synthesis)
+Input: objective, plan, all_worker_results, final_review, rounds_completed.
+Output (OrchestratorDeliverOutput):
+- user_facing_document — Full Markdown research report (executive summary, evidence-grounded analysis, sources, caveats, conclusions).
+- key_findings, dimensions, known_gaps — Structured outputs.
+- findings_summary — { key, value } for persistence.
+- investment_thesis — Concise 2–4 sentence thesis statement.`;
+
+export const PLANNER_CHEATSHEET = `Planner (Legacy) — decompose objective into parallel tasks
 
 Input
 - objective (required) — User's research request.
@@ -58,7 +101,7 @@ Output (WorkerOutput)
 - search_queries_used — All queries executed.
 - rabbithole_leads — 0–5 high-signal threads worth deeper investigation (specific leads, not restated gaps).`;
 
-export const SYNTHESIZER_CHEATSHEET = `Synthesizer — merge worker results into unified report
+export const SYNTHESIZER_CHEATSHEET = `Synthesizer (Legacy) — merge worker results into unified report
 
 Input
 - objective, subject_scope, domain_manual, user_preferences_summary, research_hygiene — Same as planner.
@@ -73,38 +116,37 @@ Output (SynthesizerOutput)
 - dimensions — Final set of research dimensions.
 - known_gaps — What remains unknown.
 - findings_summary — Rolling summary { key, value } for persistence.
-- coverage_assessment — Per-dimension score (0.0–1.0) with reasoning:
-  - Below 0.5 = significant gaps. Below 0.3 = critical gaps.
-  - Considers: variables_to_find coverage, source diversity, confidence.
-- dig_deeper — Follow-up PlannerResearchTask objects for under-covered dimensions (max 6).
-  - Refined search_guidance based on what was already tried.
-  - Considers workers' rabbithole_leads for high-signal threads.
-- should_continue — true when dig_deeper has tasks AND coverage is insufficient.
-  - Forced false on final round.`;
+- coverage_assessment — Per-dimension score (0.0–1.0) with reasoning.
+- dig_deeper — Follow-up tasks for under-covered dimensions (max 6).
+- should_continue — true when dig_deeper has tasks AND coverage is insufficient.`;
 
-export const FULL_PIPELINE_CHEATSHEET = `Full Parallel Pipeline — end-to-end research
+export const FULL_PIPELINE_CHEATSHEET = `Full Pipeline — end-to-end orchestrator-driven research
 
 Flow
 1. Intent Router → classify chat vs research
 2. If chat → fast reply (no pipeline)
-3. Planner → decompose into parallel tasks
-4. Workers (parallel) → execute tasks with web search
-5. Synthesizer → merge results, assess coverage
-6. If should_continue → dig_deeper tasks back to Workers (round 2+)
-7. Max 3 rounds (configurable up to 5)
+3. Orchestrator Plan → decompose into parallel tasks with investment thesis draft
+4. Workers (parallel, max 2 concurrent with 2s stagger) → execute tasks with web search
+5. Orchestrator Review → analyze evidence, find contradictions/connections, decide: dig_deeper or deliver
+6. If dig_deeper → targeted investigative tasks referencing specific findings → back to Workers (round 2+)
+7. Orchestrator Deliver → final investment research document with thesis
 8. Persist to chat-memory.json + user-output.md
 9. Preferences Agent (async, if preference signal detected)
 
-Input
-- objective (required) — User's research request.
-- subject_scope (optional) — Disambiguation and scope constraints.
-- research_hygiene (optional) — Citation/sourcing norms.
-- max_rounds (optional, default 3, max 5) — Maximum synthesis rounds.
+Configurable via pipeline_config:
+- max_rounds (default 5, max 5) — Maximum orchestrator review rounds.
+- max_workers_concurrent (default 2) — Parallel worker limit.
+- worker_stagger_ms (default 2000) — Delay between worker launches.
+- max_worker_steps (default 5) — Max tool-use steps per worker.
+- max_tasks_per_round (default 8) — Max tasks per round.
+- orchestrator_temperature (default 0.2) — LLM temperature for orchestrator.
+- worker_temperature (default 0.2) — LLM temperature for workers.
+- deliver_max_tokens (default 16000) — Max output tokens for deliver phase.
 
 Output (ParallelPipelineResult)
 - document_markdown — Final user-facing report.
 - key_findings, dimensions, known_gaps — Structured outputs.
-- rounds_completed — How many synthesis rounds ran.
+- rounds_completed — How many rounds ran.
 - preference_notification — If a preference was learned.
 - session_preferences — Active session preferences.
-- steps — Full trace: intent, planner, worker(s), synthesizer, dig_deeper_worker(s), dig_deeper_synthesizer, preferences.`;
+- steps — Full trace: intent, orchestrator_plan, worker(s), orchestrator_review, orchestrator_deliver, preferences.`;

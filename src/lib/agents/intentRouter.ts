@@ -1,5 +1,4 @@
-import { generateObject } from "ai";
-import { z } from "zod";
+import { generateText } from "ai";
 import { createBedrockLanguageModel } from "@/lib/bedrockModel";
 import type { IntentClassification } from "@/lib/types";
 
@@ -99,13 +98,6 @@ function generateMetaChatReply(): string {
   ].join("\n");
 }
 
-const intentSchema = z.object({
-  intent: z.enum(["chat", "research"]),
-  has_preference_signal: z.boolean(),
-  reasoning: z.string().min(1),
-  chat_reply: z.string().optional(),
-});
-
 const INTENT_SYSTEM = `You classify user messages for a research system.
 
 Determine:
@@ -116,7 +108,16 @@ Determine:
 
 Meta-questions about the system itself ("what can you do", "what kind of research", "how does this work") are "chat" — answer them directly, do not trigger research.
 
-Lean toward "research" when unsure. Preference signals include: always/never rules, focus directives, source preferences, metric preferences, format preferences.`;
+Lean toward "research" when unsure. Preference signals include: always/never rules, focus directives, source preferences, metric preferences, format preferences.
+
+IMPORTANT: Your response MUST be a single valid JSON object with these fields:
+{
+  "intent": "chat" or "research",
+  "has_preference_signal": true or false,
+  "reasoning": "string",
+  "chat_reply": "string (only when intent is chat)"
+}
+Output ONLY the JSON object. No markdown fences, no text before or after.`;
 
 export async function classifyIntent(
   message: string,
@@ -130,9 +131,8 @@ export async function classifyIntent(
     ? `User message: "${message}"\n\nConversation context (summary of prior turns):\n${conversationContext}`
     : `User message: "${message}"`;
 
-  const { object } = await generateObject({
+  const { text } = await generateText({
     model,
-    schema: intentSchema,
     system: INTENT_SYSTEM,
     prompt,
     maxRetries: 1,
@@ -140,5 +140,26 @@ export async function classifyIntent(
     maxOutputTokens: 512,
   });
 
-  return object;
+  try {
+    let str = text.trim();
+    const fence = str.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fence) str = fence[1]!.trim();
+    const start = str.indexOf("{");
+    const end = str.lastIndexOf("}");
+    if (start !== -1 && end > start) str = str.slice(start, end + 1);
+
+    const parsed = JSON.parse(str) as Record<string, unknown>;
+    return {
+      intent: parsed.intent === "chat" ? "chat" : "research",
+      has_preference_signal: parsed.has_preference_signal === true,
+      reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "LLM classification",
+      chat_reply: typeof parsed.chat_reply === "string" ? parsed.chat_reply : undefined,
+    };
+  } catch {
+    return {
+      intent: "research",
+      has_preference_signal: false,
+      reasoning: "LLM output parse failed, defaulting to research",
+    };
+  }
 }

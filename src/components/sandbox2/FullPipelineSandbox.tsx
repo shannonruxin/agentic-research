@@ -15,11 +15,10 @@ export type FullPipelineSandboxProps = {
 function stepLabel(step: ParallelPipelineStep): string {
   switch (step.kind) {
     case "intent": return `Intent → ${step.result.intent}`;
-    case "planner": return `Planner → ${step.result.tasks.length} tasks (${step.result.execution_strategy})`;
-    case "worker": return `Worker: ${step.task_id} [conf ${(step.result.confidence).toFixed(2)}]`;
-    case "synthesizer": return `Synthesizer (round 1) → continue: ${step.result.should_continue}`;
-    case "dig_deeper_worker": return `Dig-deeper R${step.round}: ${step.task_id} [conf ${(step.result.confidence).toFixed(2)}]`;
-    case "dig_deeper_synthesizer": return `Synthesizer (round ${step.round}) → continue: ${step.result.should_continue}`;
+    case "orchestrator_plan": return `Orchestrator Plan → ${step.result.tasks.length} tasks (${step.result.execution_strategy})`;
+    case "worker": return `Worker R${step.round}: ${step.task_id} [conf ${(step.result.confidence).toFixed(2)}]`;
+    case "orchestrator_review": return `Orchestrator Review R${step.round} → ${step.result.decision.action}`;
+    case "orchestrator_deliver": return `Orchestrator Deliver → thesis: ${step.result.investment_thesis.slice(0, 60)}…`;
     case "preferences": return `Preferences → ${step.result.scope}: ${step.result.notification.slice(0, 60)}`;
   }
 }
@@ -28,7 +27,15 @@ export function FullPipelineSandbox({ pipelineBusy = false, onBusyChange }: Full
   const [objective, setObjective] = useState("");
   const [subjectScope, setSubjectScope] = useState("");
   const [researchHygiene, setResearchHygiene] = useState("");
-  const [maxRoundsText, setMaxRoundsText] = useState("3");
+  const [showConfig, setShowConfig] = useState(false);
+  const [maxRounds, setMaxRounds] = useState("5");
+  const [maxWorkersConcurrent, setMaxWorkersConcurrent] = useState("2");
+  const [workerStaggerMs, setWorkerStaggerMs] = useState("2000");
+  const [maxWorkerSteps, setMaxWorkerSteps] = useState("5");
+  const [maxTasksPerRound, setMaxTasksPerRound] = useState("8");
+  const [orchestratorTemp, setOrchestratorTemp] = useState("0.2");
+  const [workerTemp, setWorkerTemp] = useState("0.2");
+  const [deliverMaxTokens, setDeliverMaxTokens] = useState("16000");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SuccessResult | null>(null);
@@ -39,6 +46,27 @@ export function FullPipelineSandbox({ pipelineBusy = false, onBusyChange }: Full
     setLoading(b);
     onBusyChange?.(b);
   };
+
+  function buildPipelineConfig(): Record<string, number> | undefined {
+    const cfg: Record<string, number> = {};
+    const mr = Number.parseInt(maxRounds, 10);
+    if (!Number.isNaN(mr) && mr >= 1 && mr <= 5) cfg.max_rounds = mr;
+    const mwc = Number.parseInt(maxWorkersConcurrent, 10);
+    if (!Number.isNaN(mwc) && mwc >= 1) cfg.max_workers_concurrent = mwc;
+    const ws = Number.parseInt(workerStaggerMs, 10);
+    if (!Number.isNaN(ws) && ws >= 0) cfg.worker_stagger_ms = ws;
+    const mws = Number.parseInt(maxWorkerSteps, 10);
+    if (!Number.isNaN(mws) && mws >= 1) cfg.max_worker_steps = mws;
+    const mtr = Number.parseInt(maxTasksPerRound, 10);
+    if (!Number.isNaN(mtr) && mtr >= 1) cfg.max_tasks_per_round = mtr;
+    const ot = Number.parseFloat(orchestratorTemp);
+    if (!Number.isNaN(ot)) cfg.orchestrator_temperature = ot;
+    const wt = Number.parseFloat(workerTemp);
+    if (!Number.isNaN(wt)) cfg.worker_temperature = wt;
+    const dmt = Number.parseInt(deliverMaxTokens, 10);
+    if (!Number.isNaN(dmt) && dmt >= 4000) cfg.deliver_max_tokens = dmt;
+    return Object.keys(cfg).length > 0 ? cfg : undefined;
+  }
 
   async function run() {
     if (!objective.trim()) return;
@@ -53,8 +81,8 @@ export function FullPipelineSandbox({ pipelineBusy = false, onBusyChange }: Full
         setError("research_hygiene is not valid JSON"); return;
       }
     }
-    const mr = Number.parseInt(maxRoundsText.trim(), 10);
-    if (!Number.isNaN(mr) && mr >= 1 && mr <= 5) body.max_rounds = mr;
+    const pipelineConfig = buildPipelineConfig();
+    if (pipelineConfig) body.pipeline_config = pipelineConfig;
 
     setBusy(true);
     try {
@@ -84,11 +112,10 @@ export function FullPipelineSandbox({ pipelineBusy = false, onBusyChange }: Full
   return (
     <section className="shrink-0 space-y-2 border-b border-zinc-200 pb-6">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-        Full Parallel Pipeline
+        Full Pipeline (Orchestrator-Driven)
       </h2>
       <p className="text-xs text-zinc-500">
-        End-to-end: Intent → Planner → Workers → Synthesizer (with dig-deeper loop up to{" "}
-        <code className="rounded bg-zinc-100 px-1 text-[11px]">max_rounds</code>). Persists to{" "}
+        End-to-end: Intent → Orchestrator Plan → Workers → Review loop → Deliver. Persists to{" "}
         <code className="rounded bg-zinc-100 px-1 text-[11px]">chat-memory.json</code> and{" "}
         <code className="rounded bg-zinc-100 px-1 text-[11px]">user-output.md</code>.
       </p>
@@ -134,17 +161,53 @@ export function FullPipelineSandbox({ pipelineBusy = false, onBusyChange }: Full
         spellCheck={false}
       />
 
-      <label className="block text-xs font-medium text-zinc-600">
-        max_rounds (1–5, default 3)
-        <input
-          type="text"
-          inputMode="numeric"
-          className="ml-2 w-16 rounded border border-zinc-300 bg-white p-1.5 font-mono text-xs"
-          value={maxRoundsText}
-          disabled={disabled}
-          onChange={(e) => setMaxRoundsText(e.target.value)}
-        />
-      </label>
+      <button
+        type="button"
+        className="text-xs text-zinc-600 underline"
+        onClick={() => setShowConfig((o) => !o)}
+      >
+        {showConfig ? "Hide" : "Show"} pipeline config
+      </button>
+
+      {showConfig && (
+        <div className="space-y-2 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-xs">
+          <p className="font-semibold text-zinc-700">Pipeline Config</p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+            <label className="text-zinc-600">
+              max_rounds
+              <input type="text" inputMode="numeric" className="mt-0.5 block w-full rounded border border-zinc-300 bg-white p-1.5 font-mono text-xs" value={maxRounds} disabled={disabled} onChange={(e) => setMaxRounds(e.target.value)} />
+            </label>
+            <label className="text-zinc-600">
+              max_workers_concurrent
+              <input type="text" inputMode="numeric" className="mt-0.5 block w-full rounded border border-zinc-300 bg-white p-1.5 font-mono text-xs" value={maxWorkersConcurrent} disabled={disabled} onChange={(e) => setMaxWorkersConcurrent(e.target.value)} />
+            </label>
+            <label className="text-zinc-600">
+              worker_stagger_ms
+              <input type="text" inputMode="numeric" className="mt-0.5 block w-full rounded border border-zinc-300 bg-white p-1.5 font-mono text-xs" value={workerStaggerMs} disabled={disabled} onChange={(e) => setWorkerStaggerMs(e.target.value)} />
+            </label>
+            <label className="text-zinc-600">
+              max_worker_steps
+              <input type="text" inputMode="numeric" className="mt-0.5 block w-full rounded border border-zinc-300 bg-white p-1.5 font-mono text-xs" value={maxWorkerSteps} disabled={disabled} onChange={(e) => setMaxWorkerSteps(e.target.value)} />
+            </label>
+            <label className="text-zinc-600">
+              max_tasks_per_round
+              <input type="text" inputMode="numeric" className="mt-0.5 block w-full rounded border border-zinc-300 bg-white p-1.5 font-mono text-xs" value={maxTasksPerRound} disabled={disabled} onChange={(e) => setMaxTasksPerRound(e.target.value)} />
+            </label>
+            <label className="text-zinc-600">
+              orchestrator_temp
+              <input type="text" inputMode="decimal" className="mt-0.5 block w-full rounded border border-zinc-300 bg-white p-1.5 font-mono text-xs" value={orchestratorTemp} disabled={disabled} onChange={(e) => setOrchestratorTemp(e.target.value)} />
+            </label>
+            <label className="text-zinc-600">
+              worker_temp
+              <input type="text" inputMode="decimal" className="mt-0.5 block w-full rounded border border-zinc-300 bg-white p-1.5 font-mono text-xs" value={workerTemp} disabled={disabled} onChange={(e) => setWorkerTemp(e.target.value)} />
+            </label>
+            <label className="text-zinc-600">
+              deliver_max_tokens
+              <input type="text" inputMode="numeric" className="mt-0.5 block w-full rounded border border-zinc-300 bg-white p-1.5 font-mono text-xs" value={deliverMaxTokens} disabled={disabled} onChange={(e) => setDeliverMaxTokens(e.target.value)} />
+            </label>
+          </div>
+        </div>
+      )}
 
       {error && <p className="text-xs text-red-600" role="alert">{error}</p>}
 

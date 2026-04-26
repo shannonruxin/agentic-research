@@ -2,11 +2,24 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { runParallelPipeline } from "@/lib/agents/runParallelPipeline";
 
+const pipelineConfigSchema = z
+  .object({
+    max_rounds: z.number().int().min(1).max(5).optional(),
+    max_workers_concurrent: z.number().int().min(1).max(6).optional(),
+    worker_stagger_ms: z.number().int().min(0).max(10000).optional(),
+    max_worker_steps: z.number().int().min(1).max(10).optional(),
+    max_tasks_per_round: z.number().int().min(1).max(12).optional(),
+    orchestrator_temperature: z.number().min(0).max(1).optional(),
+    worker_temperature: z.number().min(0).max(1).optional(),
+    deliver_max_tokens: z.number().int().min(4000).max(32000).optional(),
+  })
+  .optional();
+
 const bodySchema = z.object({
   objective: z.string().min(1),
   subject_scope: z.string().max(12_000).optional(),
   research_hygiene: z.record(z.string(), z.unknown()).optional(),
-  max_rounds: z.number().int().min(1).max(5).optional(),
+  pipeline_config: pipelineConfigSchema,
 });
 
 export const maxDuration = 300;
@@ -34,7 +47,7 @@ export async function POST(req: Request) {
       objective: b.objective,
       subject_scope: b.subject_scope,
       research_hygiene: b.research_hygiene,
-      max_rounds: b.max_rounds,
+      pipeline_config: b.pipeline_config,
     });
 
     if (!result.success) {
