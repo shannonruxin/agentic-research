@@ -2,7 +2,6 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { createBedrockLanguageModel } from "@/lib/bedrockModel";
 import { agent7DimensionSchema, knownGapGroupSchema } from "@/lib/agents/agent7Orchestrate";
-import { plannerTaskSchema } from "@/lib/agents/planner";
 import type {
   Agent7Dimension,
   Agent7KnownGapGroup,
@@ -16,6 +15,16 @@ const coverageAssessmentSchema = z.object({
   reasoning: z.string().min(1),
 });
 
+const digDeeperTaskSchema = z.object({
+  task_id: z.string().min(1),
+  dimension: z.string().min(1),
+  factor: z.string().min(1),
+  goal: z.string().min(1),
+  search_guidance: z.array(z.string()).min(1).max(8),
+  variables_to_find: z.array(z.string()).optional(),
+  priority: z.enum(["high", "medium", "low"]),
+});
+
 const synthesizerOutputSchema = z.object({
   user_facing_document: z.string().min(1),
   key_findings: z.record(z.string(), z.unknown()),
@@ -25,8 +34,8 @@ const synthesizerOutputSchema = z.object({
     key: z.string().min(1),
     value: z.unknown(),
   }),
-  coverage_assessment: z.array(coverageAssessmentSchema).min(1),
-  dig_deeper: z.array(plannerTaskSchema).max(6),
+  coverage_assessment: z.array(coverageAssessmentSchema),
+  dig_deeper: z.array(digDeeperTaskSchema).max(6),
   should_continue: z.boolean(),
 });
 
@@ -164,9 +173,9 @@ export async function runSynthesizer(input: {
     schemaName: "ResearchSynthesizer",
     system: SYNTHESIZER_SYSTEM,
     prompt,
-    maxRetries: 2,
+    maxRetries: 3,
     temperature: 0.2,
-    maxOutputTokens: 12_000,
+    maxOutputTokens: 16_000,
   });
 
   return {
@@ -194,12 +203,9 @@ export async function runSynthesizer(input: {
       dimension: t.dimension.trim(),
       factor: t.factor.trim(),
       goal: t.goal.trim(),
-      context: t.context,
       search_guidance: t.search_guidance.map((s) => s.trim()).filter(Boolean),
       variables_to_find: t.variables_to_find?.map((s) => s.trim()).filter(Boolean),
-      extraction_focus: t.extraction_focus?.trim() || undefined,
       priority: t.priority,
-      follow_domain_manual: t.follow_domain_manual,
     })),
     should_continue: object.should_continue,
   };
