@@ -46,33 +46,126 @@ async function persistParallelTurn(input: {
   question: string;
   documentMarkdown: string;
   findingsSummary: { key: string; value: unknown };
-  workerResults: WorkerOutput[];
-  plannerResult: PlannerOutput;
+  steps: ParallelPipelineStep[];
+  roundsCompleted: number;
 }): Promise<void> {
   const raw = await readWorkspaceText(CHAT_MEMORY_FILE);
   const doc = parseChatMemoryFile(raw);
   const turnKey = nextResearchTurnKey(doc);
 
+  const pipeline_trace: Record<string, unknown>[] = [];
+  for (const step of input.steps) {
+    switch (step.kind) {
+      case "intent":
+        pipeline_trace.push({
+          step: "intent_router",
+          intent: step.result.intent,
+          has_preference_signal: step.result.has_preference_signal,
+          reasoning: step.result.reasoning,
+          chat_reply: step.result.chat_reply,
+        });
+        break;
+      case "planner":
+        pipeline_trace.push({
+          step: "planner",
+          objective_understanding: step.result.objective_understanding,
+          execution_strategy: step.result.execution_strategy,
+          profile_task_id: step.result.profile_task_id,
+          dimensions: step.result.dimensions,
+          known_gaps: step.result.known_gaps,
+          tasks: step.result.tasks.map((t) => ({
+            task_id: t.task_id,
+            dimension: t.dimension,
+            factor: t.factor,
+            goal: t.goal,
+            priority: t.priority,
+            search_guidance: t.search_guidance,
+            variables_to_find: t.variables_to_find,
+          })),
+          reasoning: step.result.reasoning,
+        });
+        break;
+      case "worker":
+        pipeline_trace.push({
+          step: "worker",
+          round: 1,
+          task_id: step.task_id,
+          dimension: step.result.dimension,
+          factor: step.result.factor,
+          confidence: step.result.confidence,
+          summary: step.result.summary,
+          sources: step.result.sources,
+          extracted_data: step.result.extracted_data,
+          gaps_remaining: step.result.gaps_remaining,
+          search_queries_used: step.result.search_queries_used,
+          rabbithole_leads: step.result.rabbithole_leads,
+        });
+        break;
+      case "synthesizer":
+        pipeline_trace.push({
+          step: "synthesizer",
+          round: 1,
+          should_continue: step.result.should_continue,
+          coverage_assessment: step.result.coverage_assessment,
+          dig_deeper_count: step.result.dig_deeper.length,
+          dig_deeper: step.result.dig_deeper.map((t) => ({
+            task_id: t.task_id,
+            dimension: t.dimension,
+            factor: t.factor,
+            goal: t.goal,
+          })),
+          key_findings: step.result.key_findings,
+          dimensions: step.result.dimensions,
+          known_gaps: step.result.known_gaps,
+          findings_summary: step.result.findings_summary,
+        });
+        break;
+      case "dig_deeper_worker":
+        pipeline_trace.push({
+          step: "dig_deeper_worker",
+          round: step.round,
+          task_id: step.task_id,
+          dimension: step.result.dimension,
+          factor: step.result.factor,
+          confidence: step.result.confidence,
+          summary: step.result.summary,
+          sources: step.result.sources,
+          extracted_data: step.result.extracted_data,
+          gaps_remaining: step.result.gaps_remaining,
+          search_queries_used: step.result.search_queries_used,
+          rabbithole_leads: step.result.rabbithole_leads,
+        });
+        break;
+      case "dig_deeper_synthesizer":
+        pipeline_trace.push({
+          step: "dig_deeper_synthesizer",
+          round: step.round,
+          should_continue: step.result.should_continue,
+          coverage_assessment: step.result.coverage_assessment,
+          dig_deeper_count: step.result.dig_deeper.length,
+          key_findings: step.result.key_findings,
+          dimensions: step.result.dimensions,
+          known_gaps: step.result.known_gaps,
+          findings_summary: step.result.findings_summary,
+        });
+        break;
+      case "preferences":
+        pipeline_trace.push({
+          step: "preferences",
+          scope: step.result.scope,
+          notification: step.result.notification,
+          session_preference: step.result.session_preference,
+        });
+        break;
+    }
+  }
+
   const userOutput: Record<string, unknown> = {
     summary: { key: input.findingsSummary.key, value: input.findingsSummary.value },
     document: input.documentMarkdown,
-    planner: {
-      objective_understanding: input.plannerResult.objective_understanding,
-      execution_strategy: input.plannerResult.execution_strategy,
-      task_count: input.plannerResult.tasks.length,
-    },
+    rounds_completed: input.roundsCompleted,
+    pipeline_trace,
   };
-
-  for (const wr of input.workerResults) {
-    userOutput[`worker_${wr.task_id}`] = {
-      dimension: wr.dimension,
-      factor: wr.factor,
-      confidence: wr.confidence,
-      summary: wr.summary.slice(0, 800),
-      sources_count: wr.sources.length,
-      gaps: wr.gaps_remaining,
-    };
-  }
 
   const merged = mergeResearchTurn(raw, turnKey, {
     question: input.question,
@@ -237,8 +330,8 @@ export async function runParallelPipeline(
     question: input.objective,
     documentMarkdown: synthesized!.user_facing_document,
     findingsSummary: synthesized!.findings_summary,
-    workerResults: allWorkerResults,
-    plannerResult,
+    steps,
+    roundsCompleted: round,
   });
 
   let prefNotification: string | undefined;
