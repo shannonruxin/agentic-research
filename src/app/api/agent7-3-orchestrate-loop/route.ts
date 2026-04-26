@@ -28,7 +28,7 @@ const bodySchema = z.object({
   max_iterations_3_6: z.number().int().min(1).max(20).optional(),
 });
 
-export const maxDuration = 800;
+export const maxDuration = 300;
 
 /**
  * Run Agent 7 ↔ Agent 3/6 until delivery or cap. Writes `workspace/sandbox-73-memory.json` and
