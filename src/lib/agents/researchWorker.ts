@@ -201,6 +201,32 @@ export async function runResearchWorker(input: {
   return parseWorkerOutput(result.text, input.task);
 }
 
+const MAX_CONCURRENT_WORKERS = 3;
+const STAGGER_MS = 1500;
+
+async function runWithConcurrencyLimit<T>(
+  fns: (() => Promise<T>)[],
+  limit: number,
+  staggerMs: number,
+): Promise<T[]> {
+  const results: T[] = new Array(fns.length);
+  let next = 0;
+
+  async function worker() {
+    while (next < fns.length) {
+      const idx = next++;
+      if (idx > 0 && staggerMs > 0) {
+        await new Promise((r) => setTimeout(r, idx * staggerMs));
+      }
+      results[idx] = await fns[idx]!();
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(limit, fns.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
 export async function runWorkersParallel(input: {
   tasks: PlannerResearchTask[];
   domain_manual: Record<string, unknown>;
@@ -232,29 +258,27 @@ export async function runWorkersParallel(input: {
 
     const remainingTasks = tasks.filter((t) => t.task_id !== profile_task_id);
 
-    const remainingResults = await Promise.all(
-      remainingTasks.map((task) =>
-        runResearchWorker({
-          task,
-          domain_manual: task.follow_domain_manual !== false ? common.domain_manual : undefined,
-          research_hygiene: common.research_hygiene,
-          user_preferences_summary: common.user_preferences_summary,
-          profile_context: profileContext,
-        }),
-      ),
-    );
-
-    return [profileResult, ...remainingResults];
-  }
-
-  return Promise.all(
-    tasks.map((task) =>
+    const fns = remainingTasks.map((task) => () =>
       runResearchWorker({
         task,
         domain_manual: task.follow_domain_manual !== false ? common.domain_manual : undefined,
         research_hygiene: common.research_hygiene,
         user_preferences_summary: common.user_preferences_summary,
+        profile_context: profileContext,
       }),
-    ),
+    );
+    const remainingResults = await runWithConcurrencyLimit(fns, MAX_CONCURRENT_WORKERS, STAGGER_MS);
+
+    return [profileResult, ...remainingResults];
+  }
+
+  const fns = tasks.map((task) => () =>
+    runResearchWorker({
+      task,
+      domain_manual: task.follow_domain_manual !== false ? common.domain_manual : undefined,
+      research_hygiene: common.research_hygiene,
+      user_preferences_summary: common.user_preferences_summary,
+    }),
   );
+  return runWithConcurrencyLimit(fns, MAX_CONCURRENT_WORKERS, STAGGER_MS);
 }
