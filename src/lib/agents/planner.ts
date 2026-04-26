@@ -8,7 +8,7 @@ import type {
   PlannerOutput,
 } from "@/lib/types";
 
-const plannerTaskSchema = z.object({
+export const plannerTaskSchema = z.object({
   task_id: z.string().min(1),
   dimension: z.string().min(1),
   factor: z.string().min(1),

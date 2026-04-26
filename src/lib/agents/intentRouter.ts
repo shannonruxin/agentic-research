@@ -9,6 +9,15 @@ const CHAT_PATTERNS = [
   /^(what can you do|who are you|help me)[\s!.?]*$/i,
 ];
 
+const META_QUESTION_PATTERNS = [
+  /\bwhat (kind|type|sort)s?\s+of\s+(research|analysis|report)/i,
+  /\bwhat\s+(can|do) (you|u)\s+(do|research|analy[sz]e|help with)/i,
+  /\b(your|ur)\s+(capabilities|features|functions)/i,
+  /\bhow\s+do(es)?\s+(you|u|this|the system|it)\s+(work|research|analy[sz]e)/i,
+  /\bwhat\s+(are|r)\s+(you|ur)\s+(capabilities|features|able to)/i,
+  /\btell\s+me\s+about\s+(yourself|your\s*(capabilities|features))/i,
+];
+
 const RESEARCH_SIGNALS = [
   /\b(analy[sz]e|research|investigate|compare|evaluat|assessment|report on|look into|find out)\b/i,
   /\b(company|market|industry|valuation|competitor|technology|sector|revenue|financial)\b/i,
@@ -28,6 +37,7 @@ function classifyIntentHeuristic(message: string): IntentClassification | null {
   const trimmed = message.trim();
 
   const isShortChat = CHAT_PATTERNS.some((p) => p.test(trimmed));
+  const isMetaQuestion = META_QUESTION_PATTERNS.some((p) => p.test(trimmed));
   const hasResearch = RESEARCH_SIGNALS.some((p) => p.test(trimmed));
   const hasPref = PREFERENCE_SIGNALS.some((p) => p.test(trimmed));
 
@@ -37,6 +47,15 @@ function classifyIntentHeuristic(message: string): IntentClassification | null {
       has_preference_signal: hasPref,
       reasoning: "Short greeting/acknowledgment detected via heuristic.",
       chat_reply: generateSimpleChatReply(trimmed),
+    };
+  }
+
+  if (isMetaQuestion) {
+    return {
+      intent: "chat",
+      has_preference_signal: hasPref,
+      reasoning: "Meta-question about system capabilities detected via heuristic.",
+      chat_reply: generateMetaChatReply(),
     };
   }
 
@@ -68,6 +87,18 @@ function generateSimpleChatReply(message: string): string {
   return "Hello! How can I help with your research?";
 }
 
+function generateMetaChatReply(): string {
+  return [
+    "I can run two kinds of deep research for you:",
+    "",
+    "**Capital Intelligence** — company analysis, comparable public companies, valuation multiples (PE, EV/Revenue), market positioning, and financial benchmarking.",
+    "",
+    "**Technology Intelligence** — patent landscape analysis, technology novelty assessment, competitive tech positioning, and innovation timeline mapping.",
+    "",
+    "Just give me a company name, market, or topic and I'll get started. For example: \"run analysis on stripe.com\" or \"patent landscape for solid-state batteries\".",
+  ].join("\n");
+}
+
 const intentSchema = z.object({
   intent: z.enum(["chat", "research"]),
   has_preference_signal: z.boolean(),
@@ -82,6 +113,8 @@ Determine:
 2. has_preference_signal: true if the message contains a preference about HOW research should be done (e.g., "focus on profitability", "exclude Wikipedia", "always include revenue growth"). A message can be both "research" and have a preference signal.
 3. reasoning: brief explanation.
 4. chat_reply: when intent is "chat", provide a friendly direct reply.
+
+Meta-questions about the system itself ("what can you do", "what kind of research", "how does this work") are "chat" — answer them directly, do not trigger research.
 
 Lean toward "research" when unsure. Preference signals include: always/never rules, focus directives, source preferences, metric preferences, format preferences.`;
 

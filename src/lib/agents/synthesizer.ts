@@ -2,12 +2,19 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { createBedrockLanguageModel } from "@/lib/bedrockModel";
 import { agent7DimensionSchema, knownGapGroupSchema } from "@/lib/agents/agent7Orchestrate";
+import { plannerTaskSchema } from "@/lib/agents/planner";
 import type {
   Agent7Dimension,
   Agent7KnownGapGroup,
   SynthesizerOutput,
   WorkerOutput,
 } from "@/lib/types";
+
+const coverageAssessmentSchema = z.object({
+  dimension: z.string().min(1),
+  score: z.number().min(0).max(1),
+  reasoning: z.string().min(1),
+});
 
 const synthesizerOutputSchema = z.object({
   user_facing_document: z.string().min(1),
@@ -18,6 +25,9 @@ const synthesizerOutputSchema = z.object({
     key: z.string().min(1),
     value: z.unknown(),
   }),
+  coverage_assessment: z.array(coverageAssessmentSchema).min(1),
+  dig_deeper: z.array(plannerTaskSchema).max(6),
+  should_continue: z.boolean(),
 });
 
 const SYNTHESIZER_SYSTEM = `You are the Research Synthesizer. You receive results from multiple parallel research workers and produce a unified, high-quality Markdown report for the end user.
@@ -48,6 +58,21 @@ Your output:
 
 5. findings_summary: Rolling summary with a dynamic key and value for persistence.
 
+6. coverage_assessment: For each dimension, score 0.0-1.0 how well workers' data covers the goal.
+   Consider: were variables_to_find found? Are sources diverse? Is confidence high?
+   Below 0.5 = significant gaps remain. Below 0.3 = critical gaps.
+
+7. dig_deeper: When coverage is insufficient (any critical dimension below 0.5 or key variables not_found),
+   emit follow-up tasks as PlannerResearchTask objects targeting specific gaps. Each task should have
+   refined search_guidance based on what was already tried (do not repeat failed queries). Max 6 tasks.
+   Prefix task_ids with "dd_r{round}_" where round is the current round number.
+   Also consider workers' rabbithole_leads — if any are directly relevant to the objective and could
+   substantially improve coverage, create a dig_deeper task for them.
+
+8. should_continue: true ONLY when dig_deeper has tasks AND overall coverage is insufficient for a
+   responsible answer. false when coverage is adequate, when this is the final allowed round, or when
+   gaps are unlikely to be filled by further web search.
+
 Do NOT fabricate URLs or data. If workers reported gaps, reflect those honestly. Apply user preferences to report structure. Merge and deduplicate information across workers — do not repeat the same data point in multiple sections.`;
 
 function buildSynthesizerPrompt(input: {
@@ -60,6 +85,8 @@ function buildSynthesizerPrompt(input: {
   prior_key_findings?: Record<string, unknown>;
   prior_dimensions?: Agent7Dimension[];
   prior_known_gaps?: Agent7KnownGapGroup[];
+  round?: number;
+  max_rounds?: number;
 }): string {
   const parts: string[] = [
     `objective:\n"""${input.objective.trim()}"""`,
@@ -89,6 +116,14 @@ function buildSynthesizerPrompt(input: {
     parts.push("Prior known_gaps:", JSON.stringify(input.prior_known_gaps, null, 2), "");
   }
 
+  const round = input.round ?? 1;
+  const maxRounds = input.max_rounds ?? 3;
+  parts.push(`Round: ${round} of ${maxRounds}`, "");
+
+  if (round >= maxRounds) {
+    parts.push("IMPORTANT: This is the FINAL round. Set should_continue to false and produce the best possible report with all available data. Do not emit dig_deeper tasks.", "");
+  }
+
   parts.push("Worker results (one per research task):");
   for (const wr of input.worker_results) {
     parts.push(
@@ -98,6 +133,9 @@ function buildSynthesizerPrompt(input: {
       `Extracted data: ${JSON.stringify(wr.extracted_data, null, 2)}`,
       `Gaps remaining: ${JSON.stringify(wr.gaps_remaining)}`,
     );
+    if (wr.rabbithole_leads?.length) {
+      parts.push(`Rabbithole leads: ${JSON.stringify(wr.rabbithole_leads)}`);
+    }
   }
 
   parts.push("", "Produce the unified report and structured outputs per schema.");
@@ -114,6 +152,8 @@ export async function runSynthesizer(input: {
   prior_key_findings?: Record<string, unknown>;
   prior_dimensions?: Agent7Dimension[];
   prior_known_gaps?: Agent7KnownGapGroup[];
+  round?: number;
+  max_rounds?: number;
 }): Promise<SynthesizerOutput> {
   const model = createBedrockLanguageModel();
   const prompt = buildSynthesizerPrompt(input);
@@ -144,5 +184,23 @@ export async function runSynthesizer(input: {
       key: object.findings_summary.key.trim(),
       value: object.findings_summary.value,
     },
+    coverage_assessment: object.coverage_assessment.map((c) => ({
+      dimension: c.dimension.trim(),
+      score: c.score,
+      reasoning: c.reasoning.trim(),
+    })),
+    dig_deeper: object.dig_deeper.map((t) => ({
+      task_id: t.task_id.trim(),
+      dimension: t.dimension.trim(),
+      factor: t.factor.trim(),
+      goal: t.goal.trim(),
+      context: t.context,
+      search_guidance: t.search_guidance.map((s) => s.trim()).filter(Boolean),
+      variables_to_find: t.variables_to_find?.map((s) => s.trim()).filter(Boolean),
+      extraction_focus: t.extraction_focus?.trim() || undefined,
+      priority: t.priority,
+      follow_domain_manual: t.follow_domain_manual,
+    })),
+    should_continue: object.should_continue,
   };
 }

@@ -489,6 +489,13 @@ export interface WorkerOutput {
   confidence: number;
   gaps_remaining: string[];
   search_queries_used: string[];
+  rabbithole_leads?: string[];
+}
+
+export interface CoverageAssessment {
+  dimension: string;
+  score: number;
+  reasoning: string;
 }
 
 export interface SynthesizerOutput {
@@ -497,6 +504,9 @@ export interface SynthesizerOutput {
   dimensions: Agent7Dimension[];
   known_gaps: Agent7KnownGapGroup[];
   findings_summary: { key: string; value: unknown };
+  coverage_assessment: CoverageAssessment[];
+  dig_deeper: PlannerResearchTask[];
+  should_continue: boolean;
 }
 
 export type PreferenceScope = "session" | "conditional_global" | "global";
@@ -551,6 +561,8 @@ export type ParallelPipelineStep =
   | { kind: "planner"; result: PlannerOutput }
   | { kind: "worker"; task_id: string; result: WorkerOutput }
   | { kind: "synthesizer"; result: SynthesizerOutput }
+  | { kind: "dig_deeper_worker"; task_id: string; round: number; result: WorkerOutput }
+  | { kind: "dig_deeper_synthesizer"; round: number; result: SynthesizerOutput }
   | { kind: "preferences"; result: PreferencesAgentOutput };
 
 export type ParallelPipelineResult =
@@ -565,6 +577,7 @@ export type ParallelPipelineResult =
       user_output_path: string;
       preference_notification?: string;
       session_preferences?: SessionPreference[];
+      rounds_completed: number;
       steps: ParallelPipelineStep[];
     }
   | { success: false; error: string; steps?: ParallelPipelineStep[] };

@@ -25,6 +25,7 @@ import type {
   ParallelPipelineResult,
   ParallelPipelineStep,
   SessionPreference,
+  SynthesizerOutput,
   WorkerOutput,
   PlannerOutput,
 } from "@/lib/types";
@@ -38,6 +39,7 @@ export type RunParallelPipelineInput = {
   key_findings?: Record<string, unknown>;
   dimensions?: Agent7Dimension[];
   session_preferences?: SessionPreference[];
+  max_rounds?: number;
 };
 
 async function persistParallelTurn(input: {
@@ -113,6 +115,7 @@ export async function runParallelPipeline(
       known_gaps: input.known_gaps_seed ?? [],
       chat_memory_path: CHAT_MEMORY_FILE,
       user_output_path: USER_OUTPUT_FILE,
+      rounds_completed: 0,
       steps,
     };
   }
@@ -143,6 +146,7 @@ export async function runParallelPipeline(
         user_output_path: USER_OUTPUT_FILE,
         preference_notification: prefResult.notification,
         session_preferences: newSessionPrefs.length > 0 ? newSessionPrefs : undefined,
+        rounds_completed: 0,
         steps,
       };
     } catch {
@@ -155,6 +159,7 @@ export async function runParallelPipeline(
         known_gaps: input.known_gaps_seed ?? [],
         chat_memory_path: CHAT_MEMORY_FILE,
         user_output_path: USER_OUTPUT_FILE,
+        rounds_completed: 0,
         steps,
       };
     }
@@ -173,37 +178,66 @@ export async function runParallelPipeline(
   });
   steps.push({ kind: "planner", result: plannerResult });
 
-  const workerResults = await runWorkersParallel({
-    tasks: plannerResult.tasks,
-    domain_manual,
-    research_hygiene: input.research_hygiene,
-    user_preferences_summary: userPrefsSummary,
-    execution_strategy: plannerResult.execution_strategy,
-    profile_task_id: plannerResult.profile_task_id,
-  });
-  for (const wr of workerResults) {
-    steps.push({ kind: "worker", task_id: wr.task_id, result: wr });
+  const maxRounds = Math.min(input.max_rounds ?? 3, 5);
+  let allWorkerResults: WorkerOutput[] = [];
+  let synthesized: SynthesizerOutput | undefined;
+  let round = 0;
+  let tasksForRound = plannerResult.tasks;
+
+  while (true) {
+    round++;
+
+    const roundWorkerResults = await runWorkersParallel({
+      tasks: tasksForRound,
+      domain_manual,
+      research_hygiene: input.research_hygiene,
+      user_preferences_summary: userPrefsSummary,
+      execution_strategy: round === 1 ? plannerResult.execution_strategy : "all_parallel",
+      profile_task_id: round === 1 ? plannerResult.profile_task_id : undefined,
+    });
+
+    for (const wr of roundWorkerResults) {
+      if (round === 1) {
+        steps.push({ kind: "worker", task_id: wr.task_id, result: wr });
+      } else {
+        steps.push({ kind: "dig_deeper_worker", task_id: wr.task_id, round, result: wr });
+      }
+    }
+    allWorkerResults = [...allWorkerResults, ...roundWorkerResults];
+
+    synthesized = await runSynthesizer({
+      objective: input.objective,
+      subject_scope: input.subject_scope,
+      domain_manual,
+      worker_results: allWorkerResults,
+      user_preferences_summary: userPrefsSummary,
+      research_hygiene: input.research_hygiene,
+      prior_key_findings: input.key_findings,
+      prior_dimensions: input.dimensions,
+      prior_known_gaps: input.known_gaps_seed,
+      round,
+      max_rounds: maxRounds,
+    });
+
+    if (round === 1) {
+      steps.push({ kind: "synthesizer", result: synthesized });
+    } else {
+      steps.push({ kind: "dig_deeper_synthesizer", round, result: synthesized });
+    }
+
+    if (!synthesized.should_continue || round >= maxRounds || synthesized.dig_deeper.length === 0) {
+      break;
+    }
+
+    tasksForRound = synthesized.dig_deeper;
   }
 
-  const synthesized = await runSynthesizer({
-    objective: input.objective,
-    subject_scope: input.subject_scope,
-    domain_manual,
-    worker_results: workerResults,
-    user_preferences_summary: userPrefsSummary,
-    research_hygiene: input.research_hygiene,
-    prior_key_findings: input.key_findings,
-    prior_dimensions: input.dimensions,
-    prior_known_gaps: input.known_gaps_seed,
-  });
-  steps.push({ kind: "synthesizer", result: synthesized });
-
-  await writeWorkspaceText(USER_OUTPUT_FILE, synthesized.user_facing_document);
+  await writeWorkspaceText(USER_OUTPUT_FILE, synthesized!.user_facing_document);
   await persistParallelTurn({
     question: input.objective,
-    documentMarkdown: synthesized.user_facing_document,
-    findingsSummary: synthesized.findings_summary,
-    workerResults,
+    documentMarkdown: synthesized!.user_facing_document,
+    findingsSummary: synthesized!.findings_summary,
+    workerResults: allWorkerResults,
     plannerResult,
   });
 
@@ -234,14 +268,15 @@ export async function runParallelPipeline(
   return {
     success: true,
     stopped: "user_deliver",
-    document_markdown: synthesized.user_facing_document,
-    key_findings: synthesized.key_findings,
-    dimensions: synthesized.dimensions,
-    known_gaps: synthesized.known_gaps,
+    document_markdown: synthesized!.user_facing_document,
+    key_findings: synthesized!.key_findings,
+    dimensions: synthesized!.dimensions,
+    known_gaps: synthesized!.known_gaps,
     chat_memory_path: CHAT_MEMORY_FILE,
     user_output_path: USER_OUTPUT_FILE,
     preference_notification: prefNotification,
     session_preferences: newSessionPrefs.length > 0 ? newSessionPrefs : undefined,
+    rounds_completed: round,
     steps,
   };
 }

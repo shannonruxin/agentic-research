@@ -36,8 +36,11 @@ Your final message MUST be a JSON object with these fields:
   "extracted_data": [{ "entity": "string", "type": "string or null", "what_it_does": ["string"], "status": "found|partial|not_found", "source_url": "string or null" }],
   "confidence": number between 0 and 1,
   "gaps_remaining": ["string"],
-  "search_queries_used": ["string"]
+  "search_queries_used": ["string"],
+  "rabbithole_leads": ["string (0-5 items, optional)"]
 }
+
+After your main findings, identify 0-5 high-signal threads worth deeper investigation. These are specific leads (company names, patent numbers, regulatory filings, named datasets, niche competitors) that could unlock new search space if pursued. Only include genuinely promising leads, not restated gaps.
 
 Output ONLY the JSON object. No markdown fences, no explanatory text before or after.`;
 
@@ -118,6 +121,9 @@ function parseWorkerOutput(text: string, task: PlannerResearchTask): WorkerOutpu
       search_queries_used: Array.isArray(parsed.search_queries_used)
         ? (parsed.search_queries_used as string[])
         : [],
+      rabbithole_leads: Array.isArray(parsed.rabbithole_leads)
+        ? (parsed.rabbithole_leads as string[]).filter((s) => typeof s === "string" && s.trim())
+        : [],
     };
   } catch {
     return {
@@ -130,6 +136,7 @@ function parseWorkerOutput(text: string, task: PlannerResearchTask): WorkerOutpu
       confidence: 0.1,
       gaps_remaining: ["Worker output was not valid JSON"],
       search_queries_used: [],
+      rabbithole_leads: [],
     };
   }
 }
