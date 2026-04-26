@@ -201,8 +201,8 @@ export async function runResearchWorker(input: {
   return parseWorkerOutput(result.text, input.task);
 }
 
-const MAX_CONCURRENT_WORKERS = 3;
-const STAGGER_MS = 1500;
+const MAX_CONCURRENT_WORKERS = 2;
+const STAGGER_MS = 2000;
 
 async function runWithConcurrencyLimit<T>(
   fns: (() => Promise<T>)[],
@@ -210,20 +210,22 @@ async function runWithConcurrencyLimit<T>(
   staggerMs: number,
 ): Promise<T[]> {
   const results: T[] = new Array(fns.length);
-  let next = 0;
+  const queue = fns.map((fn, i) => ({ fn, i }));
+  let launched = 0;
 
-  async function worker() {
-    while (next < fns.length) {
-      const idx = next++;
-      if (idx > 0 && staggerMs > 0) {
-        await new Promise((r) => setTimeout(r, idx * staggerMs));
+  async function next(): Promise<void> {
+    while (queue.length > 0) {
+      const item = queue.shift()!;
+      const myLaunchIndex = launched++;
+      if (myLaunchIndex > 0 && staggerMs > 0) {
+        await new Promise((r) => setTimeout(r, staggerMs));
       }
-      results[idx] = await fns[idx]!();
+      results[item.i] = await item.fn();
     }
   }
 
-  const workers = Array.from({ length: Math.min(limit, fns.length) }, () => worker());
-  await Promise.all(workers);
+  const slots = Array.from({ length: Math.min(limit, fns.length) }, () => next());
+  await Promise.all(slots);
   return results;
 }
 
