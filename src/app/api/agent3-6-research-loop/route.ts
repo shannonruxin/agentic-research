@@ -20,7 +20,7 @@ const bodySchema = z.object({
   min_confidence: z.number().min(0).max(1).optional(),
 });
 
-export const maxDuration = 300;
+export const maxDuration = 600;
 
 /**
  * POST `{ research_task, research_hygiene?, max_iterations? }`
