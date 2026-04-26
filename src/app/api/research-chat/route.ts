@@ -1,12 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { agent7DimensionSchema } from "@/lib/agents/agent7Orchestrate";
-import { Agent7ResearchCycleError } from "@/lib/agents/agent7ResearchCycle";
-import { runAgent73OrchestrationLoop } from "@/lib/agents/runAgent73OrchestrationLoop";
-import { Agent3Phase2Error } from "@/lib/agents/agent3Phase2";
-import { Agent6ResearchTaskError } from "@/lib/agents/agent6ResearchTask";
-import { Agent3ResearchPlanError } from "@/lib/agents/agent3ResearchPlan";
-import { Agent3ResearchTaskError } from "@/lib/agents/agent3ResearchTask";
+import { runParallelPipeline } from "@/lib/agents/runParallelPipeline";
 
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 
@@ -15,26 +10,42 @@ const knownGapGroupBodySchema = z.object({
   gaps: z.array(z.string().min(1)).min(1),
 });
 
+const sessionPreferenceSchema = z.object({
+  rule: z.string(),
+  source: z.string(),
+  added: z.string(),
+});
+
 const bodySchema = z.object({
   message: z.string().min(1),
-  /** Binds research subject, out-of-scope, disambiguation cap for Agent 7 (see `agent7ResearchCycle`). */
   subject_scope: z.string().max(12_000).optional(),
   research_hygiene: jsonObjectSchema.optional(),
   memory: jsonObjectSchema.optional(),
   known_gaps_seed: z.array(knownGapGroupBodySchema).optional(),
   key_findings: jsonObjectSchema.optional(),
   dimensions: z.array(agent7DimensionSchema).min(1).max(16).optional(),
+  // Legacy fields — accepted for backward compat but ignored by parallel pipeline
   max_outer_iterations: z.number().int().min(1).max(50).optional(),
   min_confidence: z.number().min(0).max(1).optional(),
   max_iterations_3_6: z.number().int().min(1).max(20).optional(),
+  // New fields
+  session_preferences: z.array(sessionPreferenceSchema).optional(),
+  pipeline_config: z
+    .object({
+      max_rounds: z.number().int().min(1).max(5).optional(),
+      max_workers_concurrent: z.number().int().min(1).max(6).optional(),
+      worker_stagger_ms: z.number().int().min(0).max(10000).optional(),
+      max_worker_steps: z.number().int().min(1).max(10).optional(),
+      max_tasks_per_round: z.number().int().min(1).max(12).optional(),
+      orchestrator_temperature: z.number().min(0).max(1).optional(),
+      worker_temperature: z.number().min(0).max(1).optional(),
+      deliver_max_tokens: z.number().int().min(4000).max(32000).optional(),
+    })
+    .optional(),
 });
 
-export const maxDuration = 800;
+export const maxDuration = 300;
 
-/**
- * One Research tab turn: run Agent 7 ↔ 3/6 and persist to `user-output.md`, `chat-memory.json` (turn
- * block with `user-output` tree), and return the same document for the UI.
- */
 export async function POST(req: Request) {
   let json: unknown;
   try {
@@ -52,11 +63,9 @@ export async function POST(req: Request) {
   }
 
   const b = parsed.data;
-  const maxOuter = b.max_outer_iterations ?? 5;
-  const max36 = b.max_iterations_3_6 ?? 3;
 
   try {
-    const result = await runAgent73OrchestrationLoop({
+    const result = await runParallelPipeline({
       objective: b.message,
       subject_scope: b.subject_scope,
       research_hygiene: b.research_hygiene,
@@ -64,15 +73,14 @@ export async function POST(req: Request) {
       known_gaps_seed: b.known_gaps_seed,
       key_findings: b.key_findings,
       dimensions: b.dimensions,
-      max_outer_iterations: maxOuter,
-      min_confidence_3_6: b.min_confidence,
-      max_iterations_3_6: max36,
-      persistence: "research",
-      research_user_question: b.message,
+      session_preferences: b.session_preferences,
+      pipeline_config: b.pipeline_config,
     });
+
     if (!result.success) {
       return NextResponse.json({ error: result.error, steps: result.steps }, { status: 502 });
     }
+
     return NextResponse.json({
       document_markdown: result.document_markdown,
       stopped: result.stopped,
@@ -82,23 +90,10 @@ export async function POST(req: Request) {
       steps: result.steps,
       chat_memory_path: result.chat_memory_path,
       user_output_path: result.user_output_path,
+      preference_notification: result.preference_notification,
+      session_preferences: result.session_preferences,
     });
   } catch (e) {
-    if (e instanceof Agent7ResearchCycleError) {
-      return NextResponse.json({ error: e.message }, { status: 502 });
-    }
-    if (e instanceof Agent6ResearchTaskError) {
-      return NextResponse.json({ error: e.message }, { status: 502 });
-    }
-    if (e instanceof Agent3Phase2Error) {
-      return NextResponse.json({ error: e.message }, { status: 502 });
-    }
-    if (e instanceof Agent3ResearchPlanError) {
-      return NextResponse.json({ error: e.message }, { status: 502 });
-    }
-    if (e instanceof Agent3ResearchTaskError) {
-      return NextResponse.json({ error: e.message }, { status: 502 });
-    }
     const message = e instanceof Error ? e.message : "Research chat failed";
     return NextResponse.json({ error: message }, { status: 502 });
   }

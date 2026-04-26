@@ -8,11 +8,12 @@ import {
 } from "@/components/ParallelSourcePolicyMenu";
 import { ProductionChatView } from "@/components/ProductionChatView";
 import { ResearchChatView } from "@/components/ResearchChatView";
+import { Sandbox2PipelinePage } from "@/components/Sandbox2PipelinePage";
 import { SandboxPipelinePage } from "@/components/SandboxPipelinePage";
 import { parallelSourcePolicyRequestFromLists } from "@/lib/parallelSourcePolicy";
 
 export default function Home() {
-  const [mode, setMode] = useState<"sandbox" | "verbatim" | "research">("sandbox");
+  const [mode, setMode] = useState<"sandbox" | "sandbox2" | "verbatim" | "research">("sandbox");
 
   const [excludedDomains, setExcludedDomains] = useState<string[]>(["wikipedia.org"]);
   const [includedDomains, setIncludedDomains] = useState<string[]>([]);
@@ -67,6 +68,17 @@ export default function Home() {
           <button
             type="button"
             className={
+              mode === "sandbox2"
+                ? "rounded-md bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-white sm:px-3 sm:text-sm"
+                : "rounded-md px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 sm:px-3 sm:text-sm"
+            }
+            onClick={() => setMode("sandbox2")}
+          >
+            Sandbox2
+          </button>
+          <button
+            type="button"
+            className={
               mode === "verbatim"
                 ? "rounded-md bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-white sm:px-3 sm:text-sm"
                 : "rounded-md px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 sm:px-3 sm:text-sm"
@@ -96,6 +108,10 @@ export default function Home() {
       {mode === "sandbox" ? (
         <div className="flex min-h-0 flex-1 flex-col pt-14 sm:pt-16">
           <SandboxPipelinePage sourcePolicyRequest={sourcePolicyRequest} />
+        </div>
+      ) : mode === "sandbox2" ? (
+        <div className="flex min-h-0 flex-1 flex-col pt-14 sm:pt-16">
+          <Sandbox2PipelinePage />
         </div>
       ) : mode === "verbatim" ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden pt-14 sm:pt-16">
