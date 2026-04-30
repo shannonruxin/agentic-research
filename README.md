@@ -1,3 +1,8 @@
+# Summary
+Conduct research with AI agents + ability to inject domain knowledge into your workflows. 
+
+_Work in progress._
+
 # Agentic research — architecture
 
 This app runs **two related but separate research stacks** on top of Next.js route handlers and Amazon Bedrock (where noted). They share some names (e.g. “Agent 3”, “Agent 6”) but different code paths and responsibilities.
