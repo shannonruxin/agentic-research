@@ -55,3 +55,7 @@ next-env.d.ts
 /workspace/chat-memory.json
 /workspace/user-output.md
 /workspace/domain-manuals/domain-manual.json
+
+
+# Others
+personal-notes.md
