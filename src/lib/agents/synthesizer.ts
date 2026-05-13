@@ -2,6 +2,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { createBedrockLanguageModel } from "@/lib/bedrockModel";
 import { agent7DimensionSchema, knownGapGroupSchema } from "@/lib/agents/agent7Orchestrate";
+import { normalizeDimensionId, resolveResearchTaskDimensionId } from "@/lib/dimensionId";
 import type {
   Agent7Dimension,
   Agent7KnownGapGroup,
@@ -181,26 +182,36 @@ export async function runSynthesizer(input: {
   return {
     user_facing_document: object.user_facing_document.trim(),
     key_findings: object.key_findings,
-    dimensions: object.dimensions.map((d) => ({
-      label: d.label.trim(),
-      description: d.description?.trim() || undefined,
-    })),
-    known_gaps: object.known_gaps.map((g) => ({
-      dimension: g.dimension?.trim() || undefined,
-      gaps: g.gaps.map((x) => x.trim()).filter(Boolean),
-    })),
+    dimensions: object.dimensions,
+    known_gaps: object.known_gaps.map((g) => {
+      const dimRaw = g.dimension?.trim();
+      let dimension = dimRaw;
+      if (dimRaw) {
+        const match = object.dimensions.find(
+          (x) =>
+            x.id === dimRaw ||
+            normalizeDimensionId(x.label) === normalizeDimensionId(dimRaw) ||
+            x.label === dimRaw,
+        );
+        dimension = match ? match.id : normalizeDimensionId(dimRaw);
+      }
+      return {
+        dimension,
+        gaps: g.gaps.map((x) => x.trim()).filter(Boolean),
+      };
+    }),
     findings_summary: {
       key: object.findings_summary.key.trim(),
       value: object.findings_summary.value,
     },
     coverage_assessment: object.coverage_assessment.map((c) => ({
-      dimension: c.dimension.trim(),
+      dimension: resolveResearchTaskDimensionId(c.dimension.trim(), object.dimensions),
       score: c.score,
       reasoning: c.reasoning.trim(),
     })),
     dig_deeper: object.dig_deeper.map((t) => ({
       task_id: t.task_id.trim(),
-      dimension: t.dimension.trim(),
+      dimension: resolveResearchTaskDimensionId(t.dimension.trim(), object.dimensions),
       factor: t.factor.trim(),
       goal: t.goal.trim(),
       search_guidance: t.search_guidance.map((s) => s.trim()).filter(Boolean),

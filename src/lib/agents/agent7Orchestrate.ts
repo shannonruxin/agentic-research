@@ -1,6 +1,7 @@
 import { generateObject, NoObjectGeneratedError } from "ai";
 import { z } from "zod";
 import { createBedrockLanguageModel } from "@/lib/bedrockModel";
+import { normalizeDimensionId, resolveResearchTaskDimensionId } from "@/lib/dimensionId";
 import type {
   Agent7Assignment,
   Agent7Confidence,
@@ -21,10 +22,18 @@ export class Agent7ModelError extends Error {
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 
 /** One thematic slice of the objective (market, competition, tech, etc.). */
-export const agent7DimensionSchema = z.object({
-  label: z.string().min(1),
-  description: z.string().optional(),
-});
+export const agent7DimensionSchema = z
+  .object({
+    /** Stable slug (e.g. competitive-dynamics); omit to derive from label. */
+    id: z.string().optional(),
+    label: z.string().min(1),
+    description: z.string().optional(),
+  })
+  .transform((d) => ({
+    id: d.id?.trim() ? normalizeDimensionId(d.id) : normalizeDimensionId(d.label),
+    label: d.label.trim(),
+    description: d.description?.trim() || undefined,
+  }));
 
 export const knownGapGroupSchema = z.object({
   dimension: z.string().optional(),
@@ -104,12 +113,12 @@ train_of_thought:
 - Plain-language reasoning: how you interpreted the objective, which dimensions matter, why gaps exist, and how assignments follow.
 
 assignments (at least one entry):
-- agent3_agent6: MUST include full research_task (task_id, dimension, factor, goal, priority high|medium|low, plus method_instructions, variables_to_find, search_guidance, follow_domain_manual boolean, etc. when you can specify them). For each **research_task**, set **follow_domain_manual** to **true** when the task should use the workspace domain manual (default if unsure); set **false** when this task is **unrelated** to that manual so Agent 3/6 skip loading it. One assignment per distinct factor-level research task you are delegating.
+- agent3_agent6: MUST include full research_task (task_id, **dimension** = exact **id** from your dimensions[] for that lens, factor, goal, priority high|medium|low, plus method_instructions, variables_to_find, search_guidance, follow_domain_manual boolean, etc. when you can specify them). For each **research_task**, set **follow_domain_manual** to **true** when the task should use the workspace domain manual (default if unsure); set **false** when this task is **unrelated** to that manual so Agent 3/6 skip loading it. One assignment per distinct factor-level research task you are delegating.
 - agent4_agent5: optional row when verbatim extract+crop is needed; include verbatim_brief (URLs/claims scope).
 - agent8: optional row when memory should be updated; include memory_directive.
 - Prefer concrete agent3_agent6 tasks for each high-priority gap you can turn into research.
 
-Output fields also: objective_understanding, dimensions, key_findings, confidence (level + rationale).
+Output fields also: objective_understanding, dimensions (each with **id** = stable slug like market-size and **label** = display title), key_findings, confidence (level + rationale).
 
 Never fabricate verbatim quotes or URLs. If you lack evidence, reflect that in known_gaps and confidence.`;
 
@@ -169,14 +178,17 @@ function buildAgent7UserMessage(input: {
   return parts.join("\n");
 }
 
-function normalizeAssignments(raw: z.infer<typeof agent7OutputSchema>["assignments"]): Agent7Assignment[] {
+export function normalizeAgent7Assignments(
+  raw: z.infer<typeof agent7OutputSchema>["assignments"],
+  dimensions: Agent7Dimension[],
+): Agent7Assignment[] {
   return raw.map((a) => ({
     assignee: a.assignee,
     summary: a.summary?.trim() || undefined,
     research_task: a.research_task
       ? {
           task_id: a.research_task.task_id.trim(),
-          dimension: a.research_task.dimension.trim(),
+          dimension: resolveResearchTaskDimensionId(a.research_task.dimension.trim(), dimensions),
           factor: a.research_task.factor.trim(),
           goal: a.research_task.goal.trim(),
           context: a.research_task.context,
@@ -239,23 +251,34 @@ export async function orchestrateAgent7(input: {
       }),
     });
 
+    const dimensions = object.dimensions;
     return {
       objective_understanding: object.objective_understanding.trim(),
-      dimensions: object.dimensions.map((d) => ({
-        label: d.label.trim(),
-        description: d.description?.trim() || undefined,
-      })),
+      dimensions,
       key_findings: object.key_findings,
-      known_gaps: object.known_gaps.map((g) => ({
-        dimension: g.dimension?.trim() || undefined,
-        gaps: g.gaps.map((x) => x.trim()).filter(Boolean),
-      })),
+      known_gaps: object.known_gaps.map((g) => {
+        const dimRaw = g.dimension?.trim();
+        let dimension = dimRaw;
+        if (dimRaw) {
+          const match = dimensions.find(
+            (x) =>
+              x.id === dimRaw ||
+              normalizeDimensionId(x.label) === normalizeDimensionId(dimRaw) ||
+              x.label === dimRaw,
+          );
+          dimension = match ? match.id : normalizeDimensionId(dimRaw);
+        }
+        return {
+          dimension,
+          gaps: g.gaps.map((x) => x.trim()).filter(Boolean),
+        };
+      }),
       confidence: {
         level: object.confidence.level,
         rationale: object.confidence.rationale?.trim() || undefined,
       },
       train_of_thought: object.train_of_thought.trim(),
-      assignments: normalizeAssignments(object.assignments),
+      assignments: normalizeAgent7Assignments(object.assignments, dimensions),
     };
   } catch (e) {
     if (e instanceof Agent7ModelError) {

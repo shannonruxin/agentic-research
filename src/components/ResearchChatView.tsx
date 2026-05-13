@@ -221,7 +221,8 @@ export function ResearchChatView() {
         <h1 className="text-sm font-semibold text-zinc-800">Research</h1>
         <p className="mt-1 text-xs text-zinc-500">
           Chat-driven research. Each response updates{" "}
-          <code className="rounded bg-zinc-100 px-1">user-output.md</code> and{" "}
+          <code className="rounded bg-zinc-100 px-1">user-output.md</code>,{" "}
+          <code className="rounded bg-zinc-100 px-1">chat-dimension-memory/</code>, and{" "}
           <code className="rounded bg-zinc-100 px-1">chat-memory.json</code>.
         </p>
       </div>
@@ -399,7 +400,10 @@ export function ResearchChatView() {
               className="text-xs text-zinc-500 underline"
               onClick={() => void newChat()}
             >
-              New chat (clears <code className="rounded bg-zinc-200/80 px-0.5">chat-memory.json</code>)
+              New chat (clears{" "}
+              <code className="rounded bg-zinc-200/80 px-0.5">chat-memory.json</code> and{" "}
+              <code className="rounded bg-zinc-200/80 px-0.5">chat-dimension-memory/</code>
+              )
             </button>
           </div>
         </div>

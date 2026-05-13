@@ -62,7 +62,7 @@ Input
 - objective (required) — User's research request.
 - subject_scope (optional) — In-scope subject, out-of-scope rules, disambiguation.
 - domain_manual — Loaded from workspace/domain-manuals/domain-manual.json (includes user_preferences).
-- conversation_context — Summary of prior turns (auto-built from chat-memory.json).
+- conversation_context — Summary of prior turns (auto-built from chat-memory.json; per-dimension slices live under chat-dimension-memory/).
 - user_preferences_summary — Extracted applicable preferences.
 - research_hygiene (optional) — Citation rules, sourcing norms.
 - prior_key_findings, prior_dimensions, prior_known_gaps (optional) — From earlier conversation turns.
@@ -130,7 +130,7 @@ Flow
 5. Orchestrator Review → analyze evidence, find contradictions/connections, decide: dig_deeper or deliver
 6. If dig_deeper → targeted investigative tasks referencing specific findings → back to Workers (round 2+)
 7. Orchestrator Deliver → final investment research document with thesis
-8. Persist to chat-memory.json + user-output.md
+8. Persist to chat-dimension-memory/*.md + chat-memory.json + user-output.md
 9. Preferences Agent (async, if preference signal detected)
 
 Configurable via pipeline_config:

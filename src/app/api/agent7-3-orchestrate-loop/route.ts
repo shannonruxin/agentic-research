@@ -32,7 +32,7 @@ export const maxDuration = 800;
 
 /**
  * Run Agent 7 ↔ Agent 3/6 until delivery or cap. Writes `workspace/sandbox-73-memory.json` and
- * `workspace/user-output.md` on the server. (Use the Research tab for `chat-memory.json` turn log.)
+ * `workspace/user-output.md` on the server. (Use the Research tab for `chat-memory.json` + `chat-dimension-memory/`.)
  */
 export async function POST(req: Request) {
   let json: unknown;

@@ -1,3 +1,4 @@
+import { writeChatMemoryJsonAndRebuildDimensions } from "@/lib/dimensionMemoryMarkdown";
 import { compileAgent36LoopToFlatJson } from "@/lib/agents/compileAgent36Run";
 import {
   afterAgent7Round,
@@ -116,6 +117,7 @@ async function persistResearchTurnToDisk(input: {
           kind: "agent36" as const,
           outer_index: s.outer_index,
           full_loop: s.full_loop,
+          research_task: s.research_task,
         };
       return {
         kind: "finalize" as const,
@@ -130,12 +132,12 @@ async function persistResearchTurnToDisk(input: {
     question: input.question,
     "user-output": userOut,
   });
-  await writeWorkspaceText(CHAT_MEMORY_FILE, merged);
+  await writeChatMemoryJsonAndRebuildDimensions(merged, turnKey);
 }
 
 /**
  * Agent 7 ↔ (Agent 3/6) until Agent 7 chooses `deliver_to_user`, `ask_user` (clarify), or the outer cap is hit.
- * Sandbox: `sandbox-73-memory.json`. Research: `chat-memory.json` (turn blocks) + `user-output.md`.
+ * Sandbox: `sandbox-73-memory.json`. Research: `chat-memory.json` + `chat-dimension-memory/*.md` (turn blocks) + `user-output.md`.
  */
 export async function runAgent73OrchestrationLoop(
   input: RunAgent73OrchestrationInput,

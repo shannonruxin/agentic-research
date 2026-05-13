@@ -2,6 +2,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { createBedrockLanguageModel } from "@/lib/bedrockModel";
 import { agent7DimensionSchema, knownGapGroupSchema } from "@/lib/agents/agent7Orchestrate";
+import { normalizeDimensionId, resolveResearchTaskDimensionId } from "@/lib/dimensionId";
 import type {
   Agent7Dimension,
   Agent7KnownGapGroup,
@@ -155,17 +156,27 @@ export async function runPlanner(input: {
 
   return {
     objective_understanding: object.objective_understanding.trim(),
-    dimensions: object.dimensions.map((d) => ({
-      label: d.label.trim(),
-      description: d.description?.trim() || undefined,
-    })),
-    known_gaps: object.known_gaps.map((g) => ({
-      dimension: g.dimension?.trim() || undefined,
-      gaps: g.gaps.map((x) => x.trim()).filter(Boolean),
-    })),
+    dimensions: object.dimensions,
+    known_gaps: object.known_gaps.map((g) => {
+      const dimRaw = g.dimension?.trim();
+      let dimension = dimRaw;
+      if (dimRaw) {
+        const match = object.dimensions.find(
+          (x) =>
+            x.id === dimRaw ||
+            normalizeDimensionId(x.label) === normalizeDimensionId(dimRaw) ||
+            x.label === dimRaw,
+        );
+        dimension = match ? match.id : normalizeDimensionId(dimRaw);
+      }
+      return {
+        dimension,
+        gaps: g.gaps.map((x) => x.trim()).filter(Boolean),
+      };
+    }),
     tasks: object.tasks.map((t) => ({
       task_id: t.task_id.trim(),
-      dimension: t.dimension.trim(),
+      dimension: resolveResearchTaskDimensionId(t.dimension.trim(), object.dimensions),
       factor: t.factor.trim(),
       goal: t.goal.trim(),
       context: t.context,

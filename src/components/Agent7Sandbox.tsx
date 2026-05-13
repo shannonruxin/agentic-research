@@ -8,6 +8,7 @@ import type {
   Agent7KnownGapGroup,
   Agent7OrchestrateResult,
 } from "@/lib/types";
+import { normalizeDimensionId } from "@/lib/dimensionId";
 
 /**
  * Agent 7 — Orchestrator: objective + optional hygiene, iterative key_findings. Domain context is
@@ -98,7 +99,13 @@ function parseDimensionsSeed(
       return { ok: false, error: `dimensions[${i}] must have a non-empty string label.` };
     }
     const desc = rec.description;
-    const dim: Agent7Dimension = { label: label.trim() };
+    const idField = rec.id;
+    const labelStr = label.trim();
+    const id =
+      typeof idField === "string" && idField.trim()
+        ? normalizeDimensionId(idField)
+        : normalizeDimensionId(labelStr);
+    const dim: Agent7Dimension = { id, label: labelStr };
     if (desc !== undefined) {
       if (typeof desc !== "string") {
         return { ok: false, error: `dimensions[${i}].description must be a string if present.` };
@@ -641,6 +648,7 @@ export function Agent7Sandbox({ goal, onGoalChange, pipelineBusy = false, onLoop
               {lastResult.dimensions.map((d, i) => (
                 <li key={i} className="whitespace-pre-wrap">
                   <span className="font-medium">{d.label}</span>
+                  <code className="ml-1.5 text-[10px] text-zinc-500">{d.id}</code>
                   {d.description ? ` — ${d.description}` : null}
                 </li>
               ))}

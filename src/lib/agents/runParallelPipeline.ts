@@ -4,6 +4,7 @@ import {
   orchestratorReview,
   orchestratorDeliver,
 } from "@/lib/agents/orchestrator";
+import { writeChatMemoryJsonAndRebuildDimensions } from "@/lib/dimensionMemoryMarkdown";
 import { runWorkersParallel } from "@/lib/agents/researchWorker";
 import {
   runPreferencesAgent,
@@ -167,7 +168,7 @@ async function persistParallelTurn(input: {
     question: input.question,
     "user-output": userOutput as import("@/lib/researchSessionMemory").ResearchUserOutput,
   });
-  await writeWorkspaceText(CHAT_MEMORY_FILE, merged);
+  await writeChatMemoryJsonAndRebuildDimensions(merged, turnKey);
 }
 
 export async function runParallelPipeline(

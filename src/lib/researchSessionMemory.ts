@@ -8,6 +8,7 @@ type ResearchLogStep =
       /** Orchestration “set” (outer round): 1, 2, 3, …; parallel 3/6 runs in the same round share the same set, with iter 1,2,3,… */
       outer_index: number;
       full_loop: Record<string, unknown>;
+      research_task?: import("@/lib/types").Agent7ResearchTask;
     }
   | { kind: "finalize"; reason: string; user_facing_document: string };
 
@@ -22,6 +23,7 @@ export type ResearchUserOutput = {
  * `workspace/chat-memory.json` (Research tab): each turn is a string key "1" | "2" | …
  * with `question` and nested `user-output` (summary, document, `agent7_iter*`, and
  * `agent36_<set>_iter<n>` where set is the outer round and n is 1,2,3… within a parallel batch).
+ * Per-dimension markdown mirrors live under `workspace/chat-dimension-memory/` (derived from this JSON).
  */
 export function nextResearchTurnKey(doc: Record<string, unknown>): string {
   let m = 0;
@@ -55,7 +57,11 @@ export function buildResearchUserOutput(
         a36PosInSet = 0;
       }
       a36PosInSet++;
-      uo[`agent36_${s.outer_index}_iter${a36PosInSet}`] = s.full_loop;
+      const payload: Record<string, unknown> = { full_loop: s.full_loop };
+      if (s.research_task) {
+        payload.research_task = toJsonSafe(s.research_task);
+      }
+      uo[`agent36_${s.outer_index}_iter${a36PosInSet}`] = payload;
     } else if (s.kind === "finalize") {
       uo[`finalize_${s.reason}`] = { reason: s.reason, user_facing_document: s.user_facing_document };
     }
@@ -360,6 +366,12 @@ export function mergeResearchTurn(
   block: { question: string; "user-output": ResearchUserOutput },
 ): string {
   const cur = parseChatMemoryFile(currentRaw);
+  const head: Record<string, unknown> = {};
+  for (const k of Object.keys(cur)) {
+    if (!/^\d+$/.test(k)) {
+      head[k] = cur[k] as unknown;
+    }
+  }
   const numerics: Record<string, unknown> = {};
   for (const k of Object.keys(cur)) {
     if (/^\d+$/.test(k)) numerics[k] = cur[k] as unknown;
@@ -369,7 +381,7 @@ export function mergeResearchTurn(
     .map((k) => parseInt(k, 10))
     .filter((n) => Number.isFinite(n))
     .sort((a, b) => a - b);
-  const out: Record<string, unknown> = {};
+  const out: Record<string, unknown> = { ...head };
   for (const n of sortedKeys) {
     out[String(n)] = numerics[String(n)]!;
   }

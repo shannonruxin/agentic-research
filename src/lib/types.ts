@@ -167,13 +167,19 @@ export interface Agent7Confidence {
 
 /** Sub-topic lens for the objective (e.g. market size, competitors, technology). */
 export interface Agent7Dimension {
+  /**
+   * Stable id (slug) for file names and matching — e.g. company-archetypes, competitive-dynamics.
+   * Must match research_task.dimension for tasks under this lens.
+   */
+  id: string;
+  /** Human-readable title for UI and markdown headers. */
   label: string;
   description?: string;
 }
 
 /** Missing info / evidence before a solid answer — often per-dimension; omit dimension for objective-level scope gaps. */
 export interface Agent7KnownGapGroup {
-  /** e.g. "Market size"; omit or use "Objective / scope" for pre-dimension gaps (company name, industry, etc.). */
+  /** When set, must be a **dimension id** (same as dimensions[].id), or legacy label text coerced to id. */
   dimension?: string;
   gaps: string[];
 }

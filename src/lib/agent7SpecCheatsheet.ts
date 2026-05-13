@@ -11,11 +11,11 @@ Input
 - memory (optional) — JSON: durable prior facts or decisions from the session; empty on first turn.
 - known_gaps_seed (optional) — Array of { dimension?, gaps[] }. Prior missing-info groups to refine; do not drop unresolved items unless they are now addressed.
 - key_findings (optional) — JSON object: prior structured findings from earlier turns; merge and extend, do not erase without cause.
-- dimensions (optional) — Array of { label, description? }. Prior sub-topic lenses; refine, replace, or add as needed. Must be 1–16 when provided (API validation).
+- dimensions (optional) — Array of { id, label, description? }. Each **id** is a stable slug (e.g. competitive-dynamics) used for files and matching; **label** is the human title. Refine, replace, or add as needed. Must be 1–16 when provided (API validation).
 
 Output
 - objective_understanding — One coherent restatement of what success looks like in scope.
-- dimensions — 1–16 entries: { label, description? }; thematic lenses (e.g. market_size, technology) for structuring analysis.
+- dimensions — 1–16 entries: { id, label, description? }; **id** must match **research_task.dimension** for tasks under that lens.
 - key_findings — Structured JSON the orchestrator owns and refines across iterations (open shape; not limited to a fixed schema in API).
 - known_gaps — Array of { dimension?, gaps[] }; missing evidence or scope before a responsible answer (include first-turn scope gaps, e.g. which company, geography).
 - confidence — { level: low|medium|high, rationale? }; overall call quality on the current state of knowledge.
@@ -26,7 +26,7 @@ Output
 
 research_task (inside assignments, when assignee is agent3_agent6)
 - task_id — Stable id for this task in the run.
-- dimension, factor — Dimension bucket and the specific sub-investigation under it.
+- dimension — Must equal one **dimensions[].id** value from this output (not free-form prose).
 - goal — What this task must establish or find.
 - context (optional) — Free-form JSON for scope keys (e.g. company, product, time range).
 - method_instructions (optional) — Numbered or listed methodological hints for Agent 3/6.

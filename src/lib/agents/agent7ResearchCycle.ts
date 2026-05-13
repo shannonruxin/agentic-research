@@ -6,6 +6,7 @@ import {
   agent7AssignmentBodySchema,
   agent7DimensionSchema,
   knownGapGroupSchema,
+  normalizeAgent7Assignments,
 } from "@/lib/agents/agent7Orchestrate";
 import type {
   Agent7Assignment,
@@ -14,6 +15,7 @@ import type {
   Agent7KnownGapGroup,
   Agent7OrchestrateResult,
 } from "@/lib/types";
+import { normalizeDimensionId } from "@/lib/dimensionId";
 
 export class Agent7ResearchCycleError extends Error {
   override readonly name = "Agent7ResearchCycleError";
@@ -85,38 +87,33 @@ export const agent7ResearchCycleOutputSchema = z
 
 export type Agent7ResearchCycleModelOut = z.infer<typeof agent7ResearchCycleOutputSchema>;
 
-function normalizeResearchCycleAssignments(
-  raw: Agent7ResearchCycleModelOut["assignments"],
-): Agent7Assignment[] {
-  return raw.map((a) => ({
-    assignee: a.assignee,
-    summary: a.summary?.trim() || undefined,
-    research_task: a.research_task
-      ? {
-          task_id: a.research_task.task_id.trim(),
-          dimension: a.research_task.dimension.trim(),
-          factor: a.research_task.factor.trim(),
-          goal: a.research_task.goal.trim(),
-          context: a.research_task.context,
-          method_instructions: a.research_task.method_instructions?.map((s) => s.trim()).filter(Boolean),
-          variables_to_find: a.research_task.variables_to_find?.map((s) => s.trim()).filter(Boolean),
-          calculation_logic: a.research_task.calculation_logic?.trim() || undefined,
-          search_guidance: a.research_task.search_guidance?.map((s) => s.trim()).filter(Boolean),
-          validation_criteria: a.research_task.validation_criteria?.map((s) => s.trim()).filter(Boolean),
-          adaptation_signals: a.research_task.adaptation_signals?.map((s) => s.trim()).filter(Boolean),
-          fallback_methods: a.research_task.fallback_methods?.map((s) => s.trim()).filter(Boolean),
-          success_criteria: a.research_task.success_criteria?.map((s) => s.trim()).filter(Boolean),
-          priority: a.research_task.priority,
-          expected_output_format: a.research_task.expected_output_format?.map((s) => s.trim()).filter(Boolean),
-          follow_domain_manual:
-            typeof a.research_task.follow_domain_manual === "boolean"
-              ? a.research_task.follow_domain_manual
-              : undefined,
-        }
-      : undefined,
-    verbatim_brief: a.verbatim_brief?.trim() || undefined,
-    memory_directive: a.memory_directive?.trim() || undefined,
-  }));
+function normalizeResearchCycleOutputDimsAndAssignments(
+  object: Agent7ResearchCycleModelOut,
+): {
+  dimensions: Agent7Dimension[];
+  known_gaps: Agent7KnownGapGroup[];
+  assignments: Agent7Assignment[];
+} {
+  const dimensions = object.dimensions;
+  const known_gaps: Agent7KnownGapGroup[] = object.known_gaps.map((g) => {
+    const dimRaw = g.dimension?.trim();
+    let dimension = dimRaw;
+    if (dimRaw) {
+      const match = dimensions.find(
+        (x) =>
+          x.id === dimRaw ||
+          normalizeDimensionId(x.label) === normalizeDimensionId(dimRaw) ||
+          x.label === dimRaw,
+      );
+      dimension = match ? match.id : normalizeDimensionId(dimRaw);
+    }
+    return {
+      dimension,
+      gaps: g.gaps.map((x) => x.trim()).filter(Boolean),
+    };
+  });
+  const assignments = normalizeAgent7Assignments(object.assignments, dimensions);
+  return { dimensions, known_gaps, assignments };
 }
 
 export type Agent7ResearchCycleResult = Omit<Agent7OrchestrateResult, "assignments"> & {
@@ -136,6 +133,7 @@ numeric confidence; reflect gaps honestly.
 \`key\` (any descriptive string) and a JSON \`value\` that summarizes findings, gaps, and decisions
 for the user objective. The server appends a full chrono log (Agent 7 and Agent 3/6 runs) to
 \`workspace/chat-memory.json\`: first field = this summary; \`"1"\`, \`"2"\`, … = outputs in time order.
+The server also syncs \`workspace/chat-dimension-memory/<dimension-id>.md\` — one file per \`dimensions[].id\` (no extra LLM).
 
 **Orchestration:**
 - \`delegate_research\` — you need more web research. Set \`assignments\` with at least one
@@ -322,23 +320,19 @@ export async function orchestrateAgent7ResearchCycle(input: {
       maxOutputTokens: 16_000,
     });
 
+    const { dimensions, known_gaps, assignments } = normalizeResearchCycleOutputDimsAndAssignments(object);
+
     return {
       objective_understanding: object.objective_understanding.trim(),
-      dimensions: object.dimensions.map((d) => ({
-        label: d.label.trim(),
-        description: d.description?.trim() || undefined,
-      })),
+      dimensions,
       key_findings: object.key_findings,
-      known_gaps: object.known_gaps.map((g) => ({
-        dimension: g.dimension?.trim() || undefined,
-        gaps: g.gaps.map((x) => x.trim()).filter(Boolean),
-      })),
+      known_gaps,
       confidence: {
         level: object.confidence.level,
         rationale: object.confidence.rationale?.trim() || undefined,
       },
       train_of_thought: object.train_of_thought.trim(),
-      assignments: normalizeResearchCycleAssignments(object.assignments),
+      assignments,
       orchestration: object.orchestration,
       findings_summary: {
         key: object.findings_summary.key.trim(),

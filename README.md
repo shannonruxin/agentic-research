@@ -68,7 +68,7 @@ flowchart TB
   DM[domain-manual.json on disk]
   A7[Agent 7 research cycle]
   A36[Agent 3 Phase 2 + Agent 6 loop per research_task]
-  OUT[user-output.md + chat-memory.json]
+  OUT[user-output.md + chat-dimension-memory/ + chat-memory.json]
   DM -.->|optional per task: follow_domain_manual| A36
   A7 -->|delegate_research: assignments| A36
   A36 -->|compiled runs, logs| A7
@@ -83,7 +83,7 @@ flowchart TB
    - `user_facing_document` (required when not delegating) — markdown for the user
 2. For each **`agent3_agent6`** task, the server runs **`runAgent36ResearchLoop`**: plan → Agent 6 → unified Agent 3 review → repeat up to `max_iterations_3_6` (default 3, hard cap 20), optionally stopping early if **min confidence** is met.
 3. **Parallel tasks:** Multiple `agent3_agent6` rows in a single Agent 7 turn run **in parallel** (separate 3/6 loops); results are passed back as separate compiled runs.
-4. **Persistence (research mode):** Appends to `workspace/chat-memory.json`, updates `workspace/user-output.md`, returns `document_markdown` and step traces to the client.
+4. **Persistence (research mode):** Appends to `workspace/chat-memory.json`, updates `workspace/user-output.md`, syncs `workspace/chat-dimension-memory/*.md`, returns `document_markdown` and step traces to the client.
 
 **Optional `research-chat` body fields:** `subject_scope`, `research_hygiene`, `memory`, `known_gaps_seed`, `key_findings`, `dimensions`, `max_outer_iterations`, `min_confidence`, `max_iterations_3_6`.
 
@@ -96,7 +96,8 @@ flowchart TB
 | File | Role |
 |------|------|
 | `workspace/domain-manuals/domain-manual.json` | Single source of truth for **domain** context to Agent 7 and, when `research_task.follow_domain_manual` is not `false`, to Agent 3/6. APIs do **not** accept manual overrides. |
-| `workspace/chat-memory.json` | Research turns: ordered blocks with `question`, `user-output` (Agent 7 / 3-6 trace summaries). |
+| `workspace/chat-memory.json` | Research turns: ordered blocks with `question`, `user-output` (Agent 7 / 3-6 trace summaries). Source for dimension markdown. |
+| `workspace/chat-dimension-memory/*.md` | One file per dimension id (+ `objective-scope.md`): slices derived from `chat-memory.json` (no extra LLM). |
 | `workspace/user-output.md` | Latest user-facing markdown from the research session. |
 | `workspace/sandbox-73-memory.json` | Optional alternate persistence for the same orchestration loop in **sandbox** mode (not the Research tab default). |
 | `workspace/context-bridge.json` | Debug: last Agent 7 `system` + `user` strings sent to the model. |
@@ -123,7 +124,7 @@ flowchart TB
 | `POST /api/agent6-research-task` | **Phase 2** Agent 6 execution for one `research_task` + optional Agent 3 assignment |
 | `POST /api/agent7-3-orchestrate-loop` | Full **outer** 7↔3/6 loop (orchestration entry similar to `research-chat` but different wiring) |
 | `POST /api/research-chat` | **Research tab:** one user turn → `runAgent73OrchestrationLoop` + disk persistence |
-| `POST /api/research-clear-chat-memory` | Resets `chat-memory.json` to `{}` |
+| `POST /api/research-clear-chat-memory` | Clears `chat-memory.json` and `chat-dimension-memory/*.md` |
 | `POST /api/chat` | Simple Bedrock chat (not the agent research stack) |
 
 ---

@@ -1,5 +1,6 @@
 import { generateText } from "ai";
 import { createBedrockLanguageModel } from "@/lib/bedrockModel";
+import { normalizeDimensionId, resolveResearchTaskDimensionId } from "@/lib/dimensionId";
 import type {
   Agent7Dimension,
   Agent7KnownGapGroup,
@@ -125,7 +126,7 @@ function buildPlanPrompt(input: {
     "{",
     '  "objective_understanding": "string — restatement of the investment question",',
     '  "investment_thesis_draft": "string — initial hypothesis to test",',
-    '  "dimensions": [{ "label": "string", "description": "string" }],',
+    '  "dimensions": [{ "id": "stable-slug-id", "label": "string", "description": "string" }],',
     '  "known_gaps": [{ "dimension": "string", "gaps": ["string"] }],',
     '  "tasks": [{',
     '    "task_id": "string",',
@@ -145,8 +146,21 @@ function buildPlanPrompt(input: {
   return parts.join("\n");
 }
 
+function mapRawDimensions(rows: Record<string, unknown>[]): Agent7Dimension[] {
+  return rows.map((d) => ({
+    id:
+      typeof d.id === "string" && d.id.trim()
+        ? normalizeDimensionId(d.id)
+        : normalizeDimensionId(asString(d.label, "unknown")),
+    label: asString(d.label, "unknown"),
+    description: typeof d.description === "string" ? d.description.trim() : undefined,
+  }));
+}
+
 function parsePlanOutput(raw: Record<string, unknown>): OrchestratorPlanOutput {
-  const tasks: PlannerResearchTask[] = Array.isArray(raw.tasks)
+  const dims = Array.isArray(raw.dimensions) ? mapRawDimensions(raw.dimensions as Record<string, unknown>[]) : [];
+
+  const tasksRaw: PlannerResearchTask[] = Array.isArray(raw.tasks)
     ? (raw.tasks as Record<string, unknown>[]).map((t) => ({
         task_id: asString(t.task_id, "task_1"),
         dimension: asString(t.dimension, "general"),
@@ -159,19 +173,28 @@ function parsePlanOutput(raw: Record<string, unknown>): OrchestratorPlanOutput {
       }))
     : [];
 
-  const dims: Agent7Dimension[] = Array.isArray(raw.dimensions)
-    ? (raw.dimensions as Record<string, unknown>[]).map((d) => ({
-        label: asString(d.label, "unknown"),
-        description: typeof d.description === "string" ? d.description.trim() : undefined,
-      }))
-    : [];
+  const tasks = tasksRaw.map((t) => ({
+    ...t,
+    dimension: resolveResearchTaskDimensionId(t.dimension, dims),
+  }));
 
-  const gaps: Agent7KnownGapGroup[] = Array.isArray(raw.known_gaps)
+  const gapsRaw: Agent7KnownGapGroup[] = Array.isArray(raw.known_gaps)
     ? (raw.known_gaps as Record<string, unknown>[]).map((g) => ({
         dimension: typeof g.dimension === "string" ? g.dimension.trim() : undefined,
         gaps: asStringArray(g.gaps),
       })).filter((g) => g.gaps.length > 0)
     : [];
+
+  const known_gaps = gapsRaw.map((g) => {
+    const dimRaw = g.dimension?.trim();
+    if (!dimRaw) {
+      return g;
+    }
+    const match = dims.find(
+      (x) => x.id === dimRaw || normalizeDimensionId(x.label) === normalizeDimensionId(dimRaw),
+    );
+    return { ...g, dimension: match ? match.id : normalizeDimensionId(dimRaw) };
+  });
 
   const strategy = raw.execution_strategy === "two_phase" ? "two_phase" as const : "all_parallel" as const;
   let profileTaskId = typeof raw.profile_task_id === "string" ? raw.profile_task_id.trim() : undefined;
@@ -183,7 +206,7 @@ function parsePlanOutput(raw: Record<string, unknown>): OrchestratorPlanOutput {
     objective_understanding: asString(raw.objective_understanding, ""),
     investment_thesis_draft: asString(raw.investment_thesis_draft, ""),
     dimensions: dims,
-    known_gaps: gaps,
+    known_gaps,
     tasks,
     execution_strategy: strategy,
     profile_task_id: profileTaskId || undefined,
@@ -301,7 +324,7 @@ function buildReviewPrompt(input: {
     '  "working_notes": "string — evolving thesis and reasoning",',
     '  "key_findings": { "dimension_name": "finding summary", ... },',
     '  "coverage_assessment": [{ "dimension": "string", "score": 0.0-1.0, "reasoning": "string" }],',
-    '  "dimensions": [{ "label": "string", "description": "string" }],',
+    '  "dimensions": [{ "id": "stable-slug-id", "label": "string", "description": "string" }],',
     '  "known_gaps": [{ "dimension": "string", "gaps": ["string"] }],',
     '  "contradictions": ["string"],',
     '  "connections": ["string"],',
@@ -315,29 +338,35 @@ function buildReviewPrompt(input: {
 }
 
 function parseReviewOutput(raw: Record<string, unknown>): OrchestratorReviewOutput {
-  const dims: Agent7Dimension[] = Array.isArray(raw.dimensions)
-    ? (raw.dimensions as Record<string, unknown>[]).map((d) => ({
-        label: asString(d.label, "unknown"),
-        description: typeof d.description === "string" ? d.description.trim() : undefined,
-      }))
-    : [];
+  const dims = Array.isArray(raw.dimensions) ? mapRawDimensions(raw.dimensions as Record<string, unknown>[]) : [];
 
-  const gaps: Agent7KnownGapGroup[] = Array.isArray(raw.known_gaps)
+  const gapsRaw: Agent7KnownGapGroup[] = Array.isArray(raw.known_gaps)
     ? (raw.known_gaps as Record<string, unknown>[]).map((g) => ({
         dimension: typeof g.dimension === "string" ? g.dimension.trim() : undefined,
         gaps: asStringArray(g.gaps),
       })).filter((g) => g.gaps.length > 0)
     : [];
 
+  const known_gaps = gapsRaw.map((g) => {
+    const dimRaw = g.dimension?.trim();
+    if (!dimRaw) {
+      return g;
+    }
+    const match = dims.find(
+      (x) => x.id === dimRaw || normalizeDimensionId(x.label) === normalizeDimensionId(dimRaw),
+    );
+    return { ...g, dimension: match ? match.id : normalizeDimensionId(dimRaw) };
+  });
+
   const coverage: CoverageAssessment[] = Array.isArray(raw.coverage_assessment)
     ? (raw.coverage_assessment as Record<string, unknown>[]).map((c) => ({
-        dimension: asString(c.dimension, "unknown"),
+        dimension: resolveResearchTaskDimensionId(asString(c.dimension, "unknown"), dims),
         score: typeof c.score === "number" ? c.score : 0.5,
         reasoning: asString(c.reasoning, ""),
       }))
     : [];
 
-  const followUpTasks: PlannerResearchTask[] = Array.isArray(raw.follow_up_tasks)
+  const followUpTasksRaw: PlannerResearchTask[] = Array.isArray(raw.follow_up_tasks)
     ? (raw.follow_up_tasks as Record<string, unknown>[]).map((t) => ({
         task_id: asString(t.task_id, "task_1"),
         dimension: asString(t.dimension, "general"),
@@ -347,6 +376,11 @@ function parseReviewOutput(raw: Record<string, unknown>): OrchestratorReviewOutp
         priority: (t.priority === "high" || t.priority === "medium" || t.priority === "low") ? t.priority : "medium" as const,
       }))
     : [];
+
+  const followUpTasks = followUpTasksRaw.map((t) => ({
+    ...t,
+    dimension: resolveResearchTaskDimensionId(t.dimension, dims),
+  }));
 
   const action = raw.decision_action === "dig_deeper" && followUpTasks.length > 0
     ? "dig_deeper" as const
@@ -359,7 +393,7 @@ function parseReviewOutput(raw: Record<string, unknown>): OrchestratorReviewOutp
       : {},
     coverage_assessment: coverage,
     dimensions: dims,
-    known_gaps: gaps,
+    known_gaps,
     contradictions: asStringArray(raw.contradictions),
     connections: asStringArray(raw.connections),
     decision: action === "deliver"
@@ -454,7 +488,7 @@ function buildDeliverPrompt(input: {
     "{",
     '  "user_facing_document": "string — full Markdown investment research report with executive summary, analysis by dimension, source citations, caveats, and conclusions",',
     '  "key_findings": { "dimension_name": "finding summary", ... },',
-    '  "dimensions": [{ "label": "string", "description": "string" }],',
+    '  "dimensions": [{ "id": "stable-slug-id", "label": "string", "description": "string" }],',
     '  "known_gaps": [{ "dimension": "string", "gaps": ["string"] }],',
     '  "findings_summary_key": "string — descriptive label e.g. \'Aerodyne Group Analysis\'",',
     '  "findings_summary_value": { ... structured summary data ... },',
@@ -468,19 +502,25 @@ function buildDeliverPrompt(input: {
 }
 
 function parseDeliverOutput(raw: Record<string, unknown>): OrchestratorDeliverOutput {
-  const dims: Agent7Dimension[] = Array.isArray(raw.dimensions)
-    ? (raw.dimensions as Record<string, unknown>[]).map((d) => ({
-        label: asString(d.label, "unknown"),
-        description: typeof d.description === "string" ? d.description.trim() : undefined,
-      }))
-    : [];
+  const dims = Array.isArray(raw.dimensions) ? mapRawDimensions(raw.dimensions as Record<string, unknown>[]) : [];
 
-  const gaps: Agent7KnownGapGroup[] = Array.isArray(raw.known_gaps)
+  const gapsRaw: Agent7KnownGapGroup[] = Array.isArray(raw.known_gaps)
     ? (raw.known_gaps as Record<string, unknown>[]).map((g) => ({
         dimension: typeof g.dimension === "string" ? g.dimension.trim() : undefined,
         gaps: asStringArray(g.gaps),
       })).filter((g) => g.gaps.length > 0)
     : [];
+
+  const known_gaps = gapsRaw.map((g) => {
+    const dimRaw = g.dimension?.trim();
+    if (!dimRaw) {
+      return g;
+    }
+    const match = dims.find(
+      (x) => x.id === dimRaw || normalizeDimensionId(x.label) === normalizeDimensionId(dimRaw),
+    );
+    return { ...g, dimension: match ? match.id : normalizeDimensionId(dimRaw) };
+  });
 
   return {
     user_facing_document: asString(raw.user_facing_document, "No report generated."),
@@ -488,7 +528,7 @@ function parseDeliverOutput(raw: Record<string, unknown>): OrchestratorDeliverOu
       ? raw.key_findings as Record<string, unknown>
       : {},
     dimensions: dims,
-    known_gaps: gaps,
+    known_gaps,
     findings_summary: {
       key: asString(raw.findings_summary_key, "Research Summary"),
       value: raw.findings_summary_value ?? {},

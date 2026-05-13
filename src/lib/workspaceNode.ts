@@ -8,6 +8,8 @@ const WORKSPACE_DIR = path.join(process.cwd(), "workspace");
  * (summary, document, `agent7_iter*`, `agent36_<set>_iter*` per parallel batch).
  */
 export const CHAT_MEMORY_FILE = path.join(WORKSPACE_DIR, "chat-memory.json");
+/** One markdown file per dimension under `workspace/chat-dimension-memory/` — derived from `chat-memory.json`. */
+export const CHAT_DIMENSION_MEMORY_DIR = path.join(WORKSPACE_DIR, "chat-dimension-memory");
 /** Sandbox "Run until final user output" 7↔3 loop (legacy chrono + findings summary format). */
 export const SANDBOX_73_MEMORY_FILE = path.join(WORKSPACE_DIR, "sandbox-73-memory.json");
 export const USER_OUTPUT_FILE = path.join(WORKSPACE_DIR, "user-output.md");

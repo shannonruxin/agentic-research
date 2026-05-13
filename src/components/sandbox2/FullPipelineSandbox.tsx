@@ -116,7 +116,8 @@ export function FullPipelineSandbox({ pipelineBusy = false, onBusyChange }: Full
       </h2>
       <p className="text-xs text-zinc-500">
         End-to-end: Intent → Orchestrator Plan → Workers → Review loop → Deliver. Persists to{" "}
-        <code className="rounded bg-zinc-100 px-1 text-[11px]">chat-memory.json</code> and{" "}
+        <code className="rounded bg-zinc-100 px-1 text-[11px]">chat-dimension-memory/</code>,{" "}
+        <code className="rounded bg-zinc-100 px-1 text-[11px]">chat-memory.json</code>, and{" "}
         <code className="rounded bg-zinc-100 px-1 text-[11px]">user-output.md</code>.
       </p>
 
