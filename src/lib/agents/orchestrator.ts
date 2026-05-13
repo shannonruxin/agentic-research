@@ -1,6 +1,7 @@
 import { generateText } from "ai";
 import { createBedrockLanguageModel } from "@/lib/bedrockModel";
 import { normalizeDimensionId, resolveResearchTaskDimensionId } from "@/lib/dimensionId";
+import { ORCHESTRATOR_SYSTEM_PROMPT_FILE, readWorkspaceText } from "@/lib/workspaceNode";
 import type {
   Agent7Dimension,
   Agent7KnownGapGroup,
@@ -37,39 +38,19 @@ function asStringArray(v: unknown): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// System prompt — same persona across all 3 phases
+// System prompt — `workspace/orchestrator-state/system-prompt.md` only
 // ---------------------------------------------------------------------------
 
-const ORCHESTRATOR_SYSTEM = `You are the Chief Research Analyst — a senior investment analyst conducting deep due diligence. You think like an investor: every piece of information is evaluated for what it reveals about value creation, competitive positioning, risk, and opportunity.
+async function loadOrchestratorSystemPrompt(): Promise<string> {
+  const text = (await readWorkspaceText(ORCHESTRATOR_SYSTEM_PROMPT_FILE)).trim();
+  if (text.length > 0) {
+    return text;
+  }
 
-You operate in three phases across multiple rounds:
-
-PLAN (Round 1): Given an objective, decompose it into parallel research tasks. Think about what an analyst would need to build a complete investment picture:
-- Business model and revenue mechanics
-- Competitive landscape and market positioning
-- Technology moats and IP
-- Management quality signals
-- Financial health and trajectory
-- Regulatory and macro risk exposure
-Design tasks that are independent enough to run in parallel but collectively cover all angles. Choose "two_phase" when you need to identify the subject before deeper analysis (e.g., unfamiliar company → profile first, then analyze).
-
-REVIEW (Round 2+): You receive worker findings and must think investigatively:
-- What contradictions exist between sources? (e.g., company claims 40% growth but job postings are flat)
-- What connections emerge across dimensions? (e.g., patent filings align with new product rumors)
-- What rabbithole leads deserve pursuit? (workers may flag specific companies, patents, or datasets)
-- What's the emerging investment thesis? Is it strengthening or weakening?
-- Where are the critical gaps that would change your recommendation?
-When issuing follow-up tasks, reference SPECIFIC findings: "Worker found revenue dropped 20% in Q3 2024 — investigate whether this correlates with the CTO departure reported in the leadership task." Do NOT repeat queries that already ran. Refine, cross-reference, and dig deeper.
-
-DELIVER (Final): Synthesize everything into a compelling, evidence-grounded investment research document. Write like a top-tier analyst: specific numbers, named sources, clear thesis, honest about what you don't know. No filler, no generic statements.
-
-Throughout all phases:
-- Your working_notes are your private scratchpad — use them to track hypotheses, contradictions, and evolving thesis
-- Never fabricate data, URLs, or quotes
-- Apply user preferences (global and conditional) to shape research focus
-- You are conducting due diligence, not writing a Wikipedia article — always ask "so what does this mean for the investment case?"
-
-IMPORTANT: Your response MUST be a single valid JSON object. No markdown fences, no text before or after. Just the JSON.`;
+  throw new Error(
+    `Orchestrator system prompt is missing or empty: ${ORCHESTRATOR_SYSTEM_PROMPT_FILE}`,
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Phase 1: Plan
@@ -227,11 +208,12 @@ export async function orchestratorPlan(input: {
   config: PipelineConfig;
 }): Promise<OrchestratorPlanOutput> {
   const model = createBedrockLanguageModel();
+  const system = await loadOrchestratorSystemPrompt();
   const prompt = buildPlanPrompt(input);
 
   const { text } = await generateText({
     model,
-    system: ORCHESTRATOR_SYSTEM,
+    system,
     prompt,
     temperature: input.config.orchestrator_temperature,
     maxOutputTokens: 8000,
@@ -414,11 +396,12 @@ export async function orchestratorReview(input: {
   config: PipelineConfig;
 }): Promise<OrchestratorReviewOutput> {
   const model = createBedrockLanguageModel();
+  const system = await loadOrchestratorSystemPrompt();
   const prompt = buildReviewPrompt(input);
 
   const { text } = await generateText({
     model,
-    system: ORCHESTRATOR_SYSTEM,
+    system,
     prompt,
     temperature: input.config.orchestrator_temperature,
     maxOutputTokens: 8000,
@@ -548,11 +531,12 @@ export async function orchestratorDeliver(input: {
   config: PipelineConfig;
 }): Promise<OrchestratorDeliverOutput> {
   const model = createBedrockLanguageModel();
+  const system = await loadOrchestratorSystemPrompt();
   const prompt = buildDeliverPrompt(input);
 
   const { text } = await generateText({
     model,
-    system: ORCHESTRATOR_SYSTEM,
+    system,
     prompt,
     temperature: input.config.orchestrator_temperature,
     maxOutputTokens: input.config.deliver_max_tokens,

@@ -24,6 +24,13 @@ export const CONTEXT_BUILDER_FILE = path.join(WORKSPACE_DIR, "context-bridge.jso
  */
 export const DOMAIN_MANUAL_FILE = path.join(WORKSPACE_DIR, "domain-manuals", "domain-manual.json");
 
+/** Orchestrator phases (plan / review / deliver): `workspace/orchestrator-state/system-prompt.md`. */
+export const ORCHESTRATOR_SYSTEM_PROMPT_FILE = path.join(
+  WORKSPACE_DIR,
+  "orchestrator-state",
+  "orchestrator-system-prompt.md",
+);
+
 /**
  * Read a JSON object from a workspace file; missing or invalid file yields `{}`.
  */
