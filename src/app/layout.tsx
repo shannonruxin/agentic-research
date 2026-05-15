@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Newsreader } from "next/font/google";
 import { ConvexClerkProvider } from "@/components/ConvexClerkProvider";
 import "./globals.css";
 
@@ -11,6 +11,13 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+const claireSerif = Newsreader({
+  variable: "--font-claire-serif",
+  subsets: ["latin"],
+  weight: ["400", "600", "700"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -26,7 +33,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${claireSerif.variable} h-full antialiased`}
     >
       <body className="flex h-dvh flex-col overflow-hidden">
         <ConvexClerkProvider>{children}</ConvexClerkProvider>

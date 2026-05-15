@@ -6,8 +6,7 @@ import {
   PARALLEL_SOURCE_POLICY_MAX_DOMAINS,
   normalizeDomainForPolicy,
 } from "@/lib/parallelSourcePolicy";
-
-const DOCS_URL = "https://docs.parallel.ai/resources/source-policy";
+import { cn } from "@/lib/utils";
 
 export type ParallelSourcePolicyBarProps = {
   excludedDomains: string[];
@@ -21,37 +20,48 @@ export type ParallelSourcePolicyBarProps = {
   /** When true, `includeDomains` is sent to Parallel (restrict to Prioritized Domains only). */
   onlyUseIncludedDomains: boolean;
   onOnlyUseIncludedDomainsChange: (value: boolean) => void;
+  /** Claire / demo shell — matches DemoChatView palette */
+  visualTheme?: "default" | "demo";
 };
 
 function DomainBadgeRow({
   domains,
   onRemove,
-  emptyLabel,
-  ariaLabel = "Domain list",
+  ariaLabel = "Source list",
+  visualTheme = "default",
 }: {
   domains: string[];
   onRemove: (d: string) => void;
-  emptyLabel: string;
   ariaLabel?: string;
+  visualTheme?: "default" | "demo";
 }) {
+  const isDemo = visualTheme === "demo";
   if (domains.length === 0) {
-    return (
-      <p className="min-h-[1.5rem] text-xs italic text-zinc-400" aria-live="polite">
-        {emptyLabel}
-      </p>
-    );
+    return null;
   }
   return (
     <ul className="flex min-h-[1.5rem] flex-wrap gap-1.5" aria-label={ariaLabel}>
       {domains.map((d) => (
         <li key={d}>
-          <span className="inline-flex max-w-full items-center gap-0.5 rounded-full border border-zinc-300/80 bg-white pl-2 pr-0.5 text-xs font-medium text-zinc-800 shadow-sm">
+          <span
+            className={cn(
+              "inline-flex max-w-full items-center gap-0.5 rounded-full pl-2 pr-0.5 text-xs font-medium shadow-sm",
+              isDemo
+                ? "border border-[#171616]/14 bg-white text-[#171616]"
+                : "border border-zinc-300/80 bg-white text-zinc-800",
+            )}
+          >
             <span className="truncate">{d}</span>
             <button
               type="button"
-              className="shrink-0 rounded-full p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+              className={cn(
+                "shrink-0 rounded-full p-1",
+                isDemo
+                  ? "text-[#171616]/55 hover:bg-[#171616]/8 hover:text-[#171616]"
+                  : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900",
+              )}
               onClick={() => onRemove(d)}
-              aria-label={`Remove ${d}`}
+              aria-label={`Remove source ${d}`}
             >
               <X className="size-3.5" aria-hidden />
             </button>
@@ -73,9 +83,11 @@ export function ParallelSourcePolicyBar({
   onPublishedBeforeChange,
   onlyUseIncludedDomains,
   onOnlyUseIncludedDomainsChange,
+  visualTheme = "default",
 }: ParallelSourcePolicyBarProps) {
   const [excludeDraft, setExcludeDraft] = useState("");
   const [includeDraft, setIncludeDraft] = useState("");
+  const isDemo = visualTheme === "demo";
 
   const excludeAtCap = excludedDomains.length >= PARALLEL_SOURCE_POLICY_MAX_DOMAINS;
   const includeAtCap = includedDomains.length >= PARALLEL_SOURCE_POLICY_MAX_DOMAINS;
@@ -124,53 +136,37 @@ export function ParallelSourcePolicyBar({
     onIncludedDomainsChange(next);
   }
 
+  const titleCls = cn("text-xs font-semibold", isDemo ? "text-[#171616]" : "text-zinc-800");
+  const labelCls = cn("font-medium text-xs", isDemo ? "text-[#171616]" : "text-zinc-700");
+  const inputCls = cn(
+    "w-full rounded-md px-2 py-1.5",
+    isDemo
+      ? "border border-[#171616]/18 bg-white text-[#171616] placeholder:text-[#171616]/35 disabled:bg-[#171616]/5"
+      : "border border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-400 disabled:bg-zinc-100",
+  );
+
   return (
     <section
-      aria-label="Parallel search source policy"
-      className="w-full rounded-lg border border-amber-200/80 bg-amber-50/90 px-3 py-2 text-xs text-zinc-800 shadow-sm sm:text-[13px]"
+      aria-label="Filters"
+      className={cn(
+        "w-full space-y-4 px-3 py-2 text-xs sm:text-[13px]",
+        isDemo
+          ? "rounded-xl border border-[#171616]/12 bg-white/85 text-[#171616] backdrop-blur-sm"
+          : "rounded-lg border border-zinc-200/90 bg-white text-zinc-800 shadow-sm",
+      )}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200/60 pb-2">
-        <span className="font-semibold text-zinc-900">Parallel search — trusted sources</span>
-        <a
-          href={DOCS_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="shrink-0 text-amber-900/90 underline decoration-amber-700/50 underline-offset-2 hover:text-amber-950"
-        >
-          Source policy docs
-        </a>
-      </div>
-      <p className="mt-2 text-[11px] leading-snug text-zinc-600 sm:text-xs">
-        Type a domain and press <kbd className="rounded border border-zinc-300 bg-white px-1">Enter</kbd> to
-        add. Parallel allows up to {PARALLEL_SOURCE_POLICY_MAX_DOMAINS} domains per list (
-        <a
-          href={DOCS_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="font-medium text-amber-900/90 underline decoration-amber-700/40 underline-offset-2"
-        >
-          source policy
-        </a>
-        ). Excluded and Prioritized lists can be used together; adding a domain to one list removes it from the
-        other.
-      </p>
-
-      <div className="mt-4 space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-700">Excluded domains</h3>
+      <div className="space-y-2">
+        <h3 className={titleCls}>Excluded sources</h3>
         <DomainBadgeRow
           domains={excludedDomains}
           onRemove={(d) => onExcludedDomainsChange(excludedDomains.filter((x) => x !== d))}
-          emptyLabel="None — add domains below"
-          ariaLabel="Excluded domain list"
+          ariaLabel="Excluded sources"
+          visualTheme={visualTheme}
         />
         <input
           type="text"
-          className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-zinc-900 placeholder:text-zinc-400 disabled:bg-zinc-100 disabled:text-zinc-500"
-          placeholder={
-            excludeAtCap
-              ? `Maximum ${PARALLEL_SOURCE_POLICY_MAX_DOMAINS} domains (Parallel limit)`
-              : "e.g. wikipedia.org — press Enter"
-          }
+          className={inputCls}
+          placeholder={excludeAtCap ? "Max" : ""}
           value={excludeDraft}
           onChange={(e) => setExcludeDraft(e.target.value)}
           disabled={excludeAtCap}
@@ -183,36 +179,32 @@ export function ParallelSourcePolicyBar({
         />
       </div>
 
-      <div className="mt-4 space-y-2 border-t border-amber-200/50 pt-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between sm:gap-x-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-700">Prioritized domains</h3>
-          <label className="flex cursor-pointer items-start gap-2 text-xs font-medium text-zinc-800">
-            <input
-              type="checkbox"
-              className="mt-0.5 size-3.5 shrink-0 rounded border-zinc-400 accent-zinc-900"
-              checked={onlyUseIncludedDomains}
-              onChange={(e) => onOnlyUseIncludedDomainsChange(e.target.checked)}
-            />
-            <span className="leading-snug">
-              Only use sources included in{" "}
-              <strong className="font-semibold text-zinc-900">Prioritized Domains</strong>
-            </span>
-          </label>
-        </div>
+      <div className={cn("space-y-2 border-t pt-4", isDemo ? "border-[#171616]/10" : "border-zinc-200")}>
+        <h3 className={titleCls}>Prioritized sources</h3>
+        <label
+          className={cn("flex cursor-pointer items-center gap-2", isDemo ? "text-[#171616]" : "text-zinc-800")}
+        >
+          <input
+            type="checkbox"
+            className={cn(
+              "size-3.5 shrink-0 rounded border-zinc-400",
+              isDemo ? "accent-[#3d6b47]" : "accent-zinc-900",
+            )}
+            checked={onlyUseIncludedDomains}
+            onChange={(e) => onOnlyUseIncludedDomainsChange(e.target.checked)}
+          />
+          <span className="text-xs font-medium">Restrict to list</span>
+        </label>
         <DomainBadgeRow
           domains={includedDomains}
           onRemove={(d) => onIncludedDomainsChange(includedDomains.filter((x) => x !== d))}
-          emptyLabel="None — add domains you want preferred below"
-          ariaLabel="Prioritized domain list"
+          ariaLabel="Prioritized sources"
+          visualTheme={visualTheme}
         />
         <input
           type="text"
-          className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-zinc-900 placeholder:text-zinc-400 disabled:bg-zinc-100"
-          placeholder={
-            includeAtCap
-              ? `Maximum ${PARALLEL_SOURCE_POLICY_MAX_DOMAINS} domains (Parallel limit)`
-              : "e.g. arxiv.org — press Enter"
-          }
+          className={inputCls}
+          placeholder={includeAtCap ? "Max" : ""}
           value={includeDraft}
           onChange={(e) => setIncludeDraft(e.target.value)}
           disabled={includeAtCap}
@@ -225,38 +217,38 @@ export function ParallelSourcePolicyBar({
         />
       </div>
 
-      <div className="mt-4 space-y-2 border-t border-amber-200/50 pt-4">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-700">Date</h3>
-        {!publishedAfter.trim() && !publishedBefore.trim() ? (
-          <p className="min-h-[1.5rem] text-xs italic text-zinc-400" aria-live="polite">
-            None — optional filters below
-          </p>
-        ) : null}
+      <div className={cn("space-y-2 border-t pt-4", isDemo ? "border-[#171616]/10" : "border-zinc-200")}>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block space-y-1">
-            <span className="font-medium text-zinc-700">Published after (optional)</span>
+            <span className={labelCls}>Published after</span>
             <input
               type="date"
-              className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-zinc-900"
+              className={cn(
+                "w-full rounded-md px-2 py-1.5",
+                isDemo
+                  ? "border border-[#171616]/18 bg-white text-[#171616]"
+                  : "border border-zinc-300 bg-white text-zinc-900",
+              )}
               value={publishedAfter}
               onChange={(e) => onPublishedAfterChange(e.target.value)}
             />
           </label>
           <label className="block space-y-1">
-            <span className="font-medium text-zinc-700">Published before (optional)</span>
+            <span className={labelCls}>Published before</span>
             <input
               type="date"
-              className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-zinc-900"
+              className={cn(
+                "w-full rounded-md px-2 py-1.5",
+                isDemo
+                  ? "border border-[#171616]/18 bg-white text-[#171616]"
+                  : "border border-zinc-300 bg-white text-zinc-900",
+              )}
               value={publishedBefore}
               onChange={(e) => onPublishedBeforeChange(e.target.value)}
             />
           </label>
         </div>
       </div>
-      <p className="mt-3 text-[11px] text-zinc-500">
-        Server may still merge{" "}
-        <code className="rounded bg-white/80 px-1">PARALLEL_SEARCH_*</code> env vars with these lists.
-      </p>
     </section>
   );
 }

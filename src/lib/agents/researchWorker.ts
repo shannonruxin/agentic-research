@@ -6,6 +6,7 @@ import {
   parallelSourcePolicyFromEnv,
   sourcePolicyForBetaSearch,
 } from "@/lib/parallelSourcePolicy";
+import type { ParallelSourcePolicy } from "@/lib/parallelSourcePolicy";
 import type { ExtractedKeyDatum, PlannerResearchTask, WorkerOutput } from "@/lib/types";
 
 const WORKER_SYSTEM = `You are a Research Worker. You have been assigned a specific research task. You have access to a webSearch tool to find information on the web.
@@ -147,8 +148,12 @@ export async function runResearchWorker(input: {
   research_hygiene?: Record<string, unknown>;
   user_preferences_summary: string;
   profile_context?: string;
+  /** Pipeline-merged policy (env ∪ request); falls back to env-only when null */
+  search_source_policy?: ParallelSourcePolicy | null;
 }): Promise<WorkerOutput> {
   const model = createBedrockLanguageModel();
+
+  const policyForSearch = input.search_source_policy ?? parallelSourcePolicyFromEnv();
 
   const webSearch = tool({
     description: "Search the web for information. Returns search results with URLs, titles, and excerpts.",
@@ -171,7 +176,7 @@ export async function runResearchWorker(input: {
         max_results: 10,
         mode: "one-shot",
         excerpts: { max_chars_per_result: 2500 },
-        source_policy: sourcePolicyForBetaSearch(parallelSourcePolicyFromEnv()),
+        source_policy: sourcePolicyForBetaSearch(policyForSearch),
       });
 
       const hits = result.results ?? [];
@@ -251,8 +256,17 @@ export async function runWorkersParallel(input: {
   profile_task_id?: string;
   max_concurrent?: number;
   stagger_ms?: number;
+  search_source_policy?: ParallelSourcePolicy | null;
 }): Promise<WorkerOutput[]> {
-  const { tasks, execution_strategy, profile_task_id, max_concurrent, stagger_ms, ...common } = input;
+  const {
+    tasks,
+    execution_strategy,
+    profile_task_id,
+    max_concurrent,
+    stagger_ms,
+    search_source_policy,
+    ...common
+  } = input;
   const concurrency = max_concurrent ?? MAX_CONCURRENT_WORKERS;
   const stagger = stagger_ms ?? STAGGER_MS;
 
@@ -266,6 +280,7 @@ export async function runWorkersParallel(input: {
       domain_manual: domainManual,
       research_hygiene: common.research_hygiene,
       user_preferences_summary: common.user_preferences_summary,
+      search_source_policy,
     });
 
     const profileContext = [
@@ -284,6 +299,7 @@ export async function runWorkersParallel(input: {
         research_hygiene: common.research_hygiene,
         user_preferences_summary: common.user_preferences_summary,
         profile_context: profileContext,
+        search_source_policy,
       }),
     );
     const remainingResults = await runWithConcurrencyLimit(fns, concurrency, stagger);
@@ -297,6 +313,7 @@ export async function runWorkersParallel(input: {
       domain_manual: task.follow_domain_manual !== false ? common.domain_manual : undefined,
       research_hygiene: common.research_hygiene,
       user_preferences_summary: common.user_preferences_summary,
+      search_source_policy,
     }),
   );
   return runWithConcurrencyLimit(fns, concurrency, stagger);

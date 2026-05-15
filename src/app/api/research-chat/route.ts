@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { agent7DimensionSchema } from "@/lib/agents/agent7Orchestrate";
 import { runParallelPipeline } from "@/lib/agents/runParallelPipeline";
+import { PARALLEL_SOURCE_POLICY_MAX_DOMAINS } from "@/lib/parallelSourcePolicy";
 
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 
@@ -15,6 +16,15 @@ const sessionPreferenceSchema = z.object({
   source: z.string(),
   added: z.string(),
 });
+
+const sourcePolicyBodySchema = z
+  .object({
+    excludeDomains: z.array(z.string().max(256)).max(PARALLEL_SOURCE_POLICY_MAX_DOMAINS).optional(),
+    includeDomains: z.array(z.string().max(256)).max(PARALLEL_SOURCE_POLICY_MAX_DOMAINS).optional(),
+    afterDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    beforeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  })
+  .optional();
 
 const bodySchema = z.object({
   message: z.string().min(1),
@@ -42,6 +52,7 @@ const bodySchema = z.object({
       deliver_max_tokens: z.number().int().min(4000).max(32000).optional(),
     })
     .optional(),
+  sourcePolicy: sourcePolicyBodySchema,
 });
 
 export const maxDuration = 300;
@@ -75,6 +86,7 @@ export async function POST(req: Request) {
       dimensions: b.dimensions,
       session_preferences: b.session_preferences,
       pipeline_config: b.pipeline_config,
+      source_policy_request: b.sourcePolicy ?? undefined,
     });
 
     if (!result.success) {

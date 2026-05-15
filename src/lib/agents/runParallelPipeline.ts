@@ -36,6 +36,12 @@ import type {
   WorkerOutput,
 } from "@/lib/types";
 import { DEFAULT_PIPELINE_CONFIG } from "@/lib/types";
+import {
+  mergeParallelSourcePolicy,
+  parallelSourcePolicyFromEnv,
+  type ParallelSourcePolicy,
+  type ParallelSourcePolicyRequest,
+} from "@/lib/parallelSourcePolicy";
 
 export type RunParallelPipelineInput = {
   objective: string;
@@ -47,6 +53,8 @@ export type RunParallelPipelineInput = {
   dimensions?: Agent7Dimension[];
   session_preferences?: SessionPreference[];
   pipeline_config?: Partial<PipelineConfig>;
+  /** Merged with `PARALLEL_SEARCH_*` env for worker Parallel web search */
+  source_policy_request?: ParallelSourcePolicyRequest;
 };
 
 function resolveConfig(partial?: Partial<PipelineConfig>): PipelineConfig {
@@ -176,6 +184,10 @@ export async function runParallelPipeline(
 ): Promise<ParallelPipelineResult> {
   const steps: ParallelPipelineStep[] = [];
   const config = resolveConfig(input.pipeline_config);
+  const searchSourcePolicy: ParallelSourcePolicy | null = mergeParallelSourcePolicy(
+    parallelSourcePolicyFromEnv(),
+    input.source_policy_request ?? undefined,
+  );
 
   const chatMemoryRaw = await readWorkspaceText(CHAT_MEMORY_FILE);
   const conversationContext = buildCompactResearchMemoryForAgent7Prompt(chatMemoryRaw, {
@@ -300,6 +312,7 @@ export async function runParallelPipeline(
         profile_task_id: round === 1 ? planResult.profile_task_id : undefined,
         max_concurrent: config.max_workers_concurrent,
         stagger_ms: config.worker_stagger_ms,
+        search_source_policy: searchSourcePolicy,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
