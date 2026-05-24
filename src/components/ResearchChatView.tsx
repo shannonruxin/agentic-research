@@ -1,9 +1,48 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
 import type { ResearchChatController } from "@/hooks/useResearchChat";
 
+type TempHistoryItem = { id: string; title: string; savedAt: string; preview: string };
+
 export function ResearchChatView({ chat }: { chat: ResearchChatController }) {
-  const { messages, draft, setDraft, loading, error, runSend, newChat } = chat;
+  const {
+    messages,
+    draft,
+    setDraft,
+    loading,
+    error,
+    runSend,
+    newChat,
+    loadConversationFromWorkspace,
+    tempHistoryRevision,
+  } = chat;
+
+  const [savedList, setSavedList] = useState<TempHistoryItem[]>([]);
+  const [savedListLoading, setSavedListLoading] = useState(false);
+
+  const refreshSavedList = useCallback(async () => {
+    setSavedListLoading(true);
+    try {
+      const res = await fetch("/api/temp-chat-history");
+      const data: unknown = await res.json().catch(() => ({}));
+      const items =
+        typeof data === "object" && data !== null && "items" in data && Array.isArray((data as { items: unknown }).items)
+          ? (data as { items: TempHistoryItem[] }).items
+          : [];
+      setSavedList(items);
+    } finally {
+      setSavedListLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshSavedList();
+  }, [refreshSavedList, tempHistoryRevision]);
+
+  async function handleLoad(id: string) {
+    await loadConversationFromWorkspace(id);
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-50">
@@ -76,16 +115,48 @@ export function ResearchChatView({ chat }: { chat: ResearchChatController }) {
               </button>
             </div>
           </div>
-          <div className="mt-2 flex justify-end">
-            <button
-              type="button"
-              className="text-xs text-zinc-500 underline"
-              onClick={() => void newChat()}
-            >
-              New chat (clears{" "}
-              <code className="rounded bg-zinc-200/80 px-0.5">chat-memory.json</code> and{" "}
-              <code className="rounded bg-zinc-200/80 px-0.5">chat-dimension-memory/</code>)
-            </button>
+          <div className="mt-2 flex flex-wrap items-start justify-between gap-3 border-t border-zinc-200/80 pt-2">
+            <div className="min-w-[12rem] max-w-full flex-1">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">Chat history</p>
+              {savedListLoading ? (
+                <p className="mt-1 text-xs text-zinc-400">Loading…</p>
+              ) : savedList.length === 0 ? (
+                <p className="mt-1 text-xs text-zinc-400">Nothing here yet—send a message to start a saved thread.</p>
+              ) : (
+                <ul className="mt-1 max-h-36 space-y-1 overflow-y-auto">
+                  {savedList.map((item) => (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={() => void handleLoad(item.id)}
+                        className="w-full truncate rounded-lg border border-zinc-200/80 bg-white px-2 py-1.5 text-left text-xs text-zinc-800 hover:bg-zinc-50 disabled:opacity-40"
+                      >
+                        <span className="font-medium">{item.title}</span>
+                        <span className="ml-2 text-zinc-400">
+                          {new Date(item.savedAt).toLocaleString(undefined, {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          })}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="flex shrink-0">
+              <button
+                type="button"
+                className="text-xs text-zinc-500 underline"
+                disabled={loading}
+                onClick={() => void newChat()}
+              >
+                New chat (clears{" "}
+                <code className="rounded bg-zinc-200/80 px-0.5">chat-memory.json</code> and{" "}
+                <code className="rounded bg-zinc-200/80 px-0.5">chat-dimension-memory/</code>)
+              </button>
+            </div>
           </div>
         </div>
       </div>

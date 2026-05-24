@@ -4,6 +4,7 @@ import type {
   AIAnswerOutput,
   ExtractBundle,
   RetrievedPage,
+  WorkerOutput,
 } from "@/lib/types";
 import { createParallelClient } from "@/lib/parallelClient";
 
@@ -156,6 +157,71 @@ async function extractChunk(
   }
 
   return out;
+}
+
+/**
+ * Run Agent 4 (`beta.extract`) over an explicit URL list (deduped). Returns `{}` if there are no URLs or no API key.
+ */
+export async function buildExtractBundleFromUrls(urls: string[]): Promise<ExtractBundle> {
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const u of urls) {
+    const key = normalizeExtractUrl(u);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    ordered.push(key);
+  }
+  if (ordered.length === 0) return {};
+
+  let client: Parallel;
+  try {
+    client = createParallelClient();
+  } catch {
+    return {};
+  }
+
+  const bundle: ExtractBundle = {};
+  for (let i = 0; i < ordered.length; i += URL_CHUNK_SIZE) {
+    const chunk = ordered.slice(i, i + URL_CHUNK_SIZE);
+    try {
+      const part = await extractChunk(client, chunk);
+      Object.assign(bundle, part);
+    } catch {
+      // best-effort per chunk
+    }
+  }
+  return bundle;
+}
+
+const VERBATIM_EXTRACT_MAX_CHARS = 16_000;
+
+/**
+ * Attach **`verbatim_extract`** to each worker source row via Parallel extract (Agent 4). Non-fatal on errors or missing API key.
+ */
+export async function enrichWorkerOutputWithAgent4Extract(output: WorkerOutput): Promise<WorkerOutput> {
+  const urlKeys = output.sources
+    .map((s) => normalizeExtractUrl(s.url))
+    .filter((k) => Boolean(k.trim()));
+  if (urlKeys.length === 0) return output;
+
+  let bundle: ExtractBundle;
+  try {
+    bundle = await buildExtractBundleFromUrls(urlKeys);
+  } catch {
+    return output;
+  }
+
+  const sources = output.sources.map((s) => {
+    const key = normalizeExtractUrl(s.url);
+    const page = key ? bundle[key] : undefined;
+    let verbatim = page?.cleanText?.trim() ?? "";
+    if (verbatim.length > VERBATIM_EXTRACT_MAX_CHARS) {
+      verbatim = `${verbatim.slice(0, VERBATIM_EXTRACT_MAX_CHARS)}\n\n…`;
+    }
+    return { ...s, verbatim_extract: verbatim ? verbatim : undefined };
+  });
+
+  return { ...output, sources };
 }
 
 /**

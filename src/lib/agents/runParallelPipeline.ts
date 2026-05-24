@@ -36,6 +36,7 @@ import type {
   WorkerOutput,
 } from "@/lib/types";
 import { DEFAULT_PIPELINE_CONFIG } from "@/lib/types";
+import { enrichWorkerOutputWithAgent4Extract } from "@/lib/agents/agent4Extract";
 import {
   mergeParallelSourcePolicy,
   parallelSourcePolicyFromEnv,
@@ -318,6 +319,8 @@ export async function runParallelPipeline(
       const msg = e instanceof Error ? e.message : String(e);
       return { success: false, error: `[workers round ${round}] ${msg}`, steps };
     }
+
+    roundWorkerResults = await Promise.all(roundWorkerResults.map((w) => enrichWorkerOutputWithAgent4Extract(w)));
 
     for (const wr of roundWorkerResults) {
       steps.push({ kind: "worker", task_id: wr.task_id, round, result: wr });

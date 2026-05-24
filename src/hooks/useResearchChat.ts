@@ -1,12 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ParallelSourcePolicyRequest } from "@/lib/parallelSourcePolicy";
-import type { Agent7Dimension, Agent7KnownGapGroup } from "@/lib/types";
+import type { PersistedResearchChatState, TempChatHistoryFileV1 } from "@/lib/persistedResearchChatState";
+import type { Agent7Dimension, Agent7KnownGapGroup, ParallelPipelineStep } from "@/lib/types";
 
 export type ResearchChatMessage =
   | { role: "user"; content: string }
-  | { role: "assistant"; content: string; preference_notification?: string; duration?: string };
+  | {
+      role: "assistant";
+      content: string;
+      preference_notification?: string;
+      duration?: string;
+      /** Pipeline steps from `/api/research-chat` (worker steps carry verbatim source rows). */
+      pipeline_steps?: ParallelPipelineStep[];
+    };
 
 type ResearchApiOk = {
   document_markdown: string;
@@ -15,6 +23,7 @@ type ResearchApiOk = {
   known_gaps: Agent7KnownGapGroup[];
   preference_notification?: string;
   session_preferences?: { rule: string; source: string; added: string }[];
+  steps?: ParallelPipelineStep[];
 };
 
 function tryParseJsonObject(raw: string, label: string): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
@@ -91,6 +100,10 @@ export function useResearchChat(options?: UseResearchChatOptions) {
   const [orchestratorTemp, setOrchestratorTemp] = useState("0.2");
   const [workerTemp, setWorkerTemp] = useState("0.2");
   const [deliverMaxTokens, setDeliverMaxTokens] = useState("16000");
+
+  const [chatId, setChatId] = useState(() => crypto.randomUUID());
+  const [tempHistoryRevision, setTempHistoryRevision] = useState(0);
+  const persistSnapshotRef = useRef<PersistedResearchChatState | null>(null);
 
   async function runSend() {
     const text = draft.trim();
@@ -204,6 +217,7 @@ export function useResearchChat(options?: UseResearchChatOptions) {
           content: ok.document_markdown,
           preference_notification: ok.preference_notification,
           duration: elapsed,
+          pipeline_steps: Array.isArray(ok.steps) ? ok.steps : undefined,
         },
       ]);
     } catch (e) {
@@ -211,6 +225,142 @@ export function useResearchChat(options?: UseResearchChatOptions) {
       setMessages((m) => m.slice(0, -1));
     } finally {
       setLoading(false);
+    }
+  }
+
+  function capturePersistedState(): PersistedResearchChatState {
+    return {
+      messages: messages.map((m) => ({ ...m })),
+      draft,
+      subjectScopeText,
+      researchHygieneText,
+      memoryText,
+      knownGapsText,
+      dimensionsText,
+      keyFindingsText,
+      keyFindingsSeed,
+      dimensionsSeed,
+      knownGapsSeed,
+      sessionPreferences: sessionPreferences.map((p) => ({ ...p })),
+      maxRounds,
+      maxWorkersConcurrent,
+      workerStaggerMs,
+      maxWorkerSteps,
+      maxTasksPerRound,
+      orchestratorTemp,
+      workerTemp,
+      deliverMaxTokens,
+    };
+  }
+
+  function applyPersistedState(s: PersistedResearchChatState) {
+    setMessages(s.messages as ResearchChatMessage[]);
+    setDraft(s.draft);
+    setSubjectScopeText(s.subjectScopeText);
+    setResearchHygieneText(s.researchHygieneText);
+    setMemoryText(s.memoryText);
+    setKnownGapsText(s.knownGapsText);
+    setDimensionsText(s.dimensionsText);
+    setKeyFindingsText(s.keyFindingsText);
+    setKeyFindingsSeed(s.keyFindingsSeed);
+    setDimensionsSeed(s.dimensionsSeed);
+    setKnownGapsSeed(s.knownGapsSeed);
+    setSessionPreferences(s.sessionPreferences.map((p) => ({ ...p })));
+    setMaxRounds(s.maxRounds);
+    setMaxWorkersConcurrent(s.maxWorkersConcurrent);
+    setWorkerStaggerMs(s.workerStaggerMs);
+    setMaxWorkerSteps(s.maxWorkerSteps);
+    setMaxTasksPerRound(s.maxTasksPerRound);
+    setOrchestratorTemp(s.orchestratorTemp);
+    setWorkerTemp(s.workerTemp);
+    setDeliverMaxTokens(s.deliverMaxTokens);
+  }
+
+  persistSnapshotRef.current = capturePersistedState();
+
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const cid = chatId;
+    let cancelled = false;
+    const tid = window.setTimeout(() => {
+      const snap = persistSnapshotRef.current;
+      if (!snap || snap.messages.length === 0 || cancelled) return;
+      void (async () => {
+        try {
+          const res = await fetch("/api/temp-chat-history", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chatId: cid, state: snap }),
+          });
+          if (!cancelled && res.ok) setTempHistoryRevision((n) => n + 1);
+        } catch {
+          // autosave failures are silent
+        }
+      })();
+    }, 550);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(tid);
+    };
+  }, [
+    chatId,
+    messages,
+    draft,
+    subjectScopeText,
+    researchHygieneText,
+    memoryText,
+    knownGapsText,
+    dimensionsText,
+    keyFindingsText,
+    keyFindingsSeed,
+    dimensionsSeed,
+    knownGapsSeed,
+    sessionPreferences,
+    maxRounds,
+    maxWorkersConcurrent,
+    workerStaggerMs,
+    maxWorkerSteps,
+    maxTasksPerRound,
+    orchestratorTemp,
+    workerTemp,
+    deliverMaxTokens,
+  ]);
+
+  async function loadConversationFromWorkspace(id: string) {
+    setError(null);
+    try {
+      const res = await fetch(`/api/temp-chat-history/${encodeURIComponent(id)}`);
+      const data: unknown = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err =
+          typeof data === "object" && data !== null && "error" in data
+            ? String((data as { error: unknown }).error)
+            : "Could not load chat";
+        setError(err);
+        return { ok: false as const, error: err };
+      }
+      if (typeof data !== "object" || data === null) {
+        setError("Invalid save file");
+        return { ok: false as const, error: "Invalid save file" };
+      }
+      const doc = data as TempChatHistoryFileV1;
+      if (
+        doc.version !== 1 ||
+        typeof doc.id !== "string" ||
+        typeof doc.state !== "object" ||
+        doc.state === null ||
+        Array.isArray(doc.state)
+      ) {
+        setError("Invalid save file");
+        return { ok: false as const, error: "Invalid save file" };
+      }
+      applyPersistedState(doc.state);
+      setChatId(doc.id);
+      return { ok: true as const };
+    } catch (e) {
+      const err = e instanceof Error ? e.message : "Could not load chat";
+      setError(err);
+      return { ok: false as const, error: err };
     }
   }
 
@@ -239,6 +389,7 @@ export function useResearchChat(options?: UseResearchChatOptions) {
     setDimensionsText("");
     setKnownGapsText("");
     setSessionPreferences([]);
+    setChatId(crypto.randomUUID());
   }
 
   return {
@@ -279,6 +430,9 @@ export function useResearchChat(options?: UseResearchChatOptions) {
     setDeliverMaxTokens,
     runSend,
     newChat,
+    loadConversationFromWorkspace,
+    chatId,
+    tempHistoryRevision,
   };
 }
 

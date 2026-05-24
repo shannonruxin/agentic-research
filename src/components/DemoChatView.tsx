@@ -1,13 +1,23 @@
 "use client";
 
-import { ArrowUp, MessageSquarePlus, PanelLeftClose, PanelLeft, Settings } from "lucide-react";
+import {
+  ArrowUp,
+  Eye,
+  History,
+  MessageSquarePlus,
+  PanelLeftClose,
+  PanelLeft,
+  Settings,
+} from "lucide-react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import remarkGfm from "remark-gfm";
 import type { ResearchChatController } from "@/hooks/useResearchChat";
+import type { TempChatHistoryListItemV1 } from "@/lib/persistedResearchChatState";
 import type { ParallelSourcePolicyMenuProps } from "@/components/ParallelSourcePolicyMenu";
 import { ParallelSourcePolicyMenu } from "@/components/ParallelSourcePolicyMenu";
+import type { ParallelPipelineStep, WorkerSourceRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /** Claire demo theme — radial wash from center (#cbe6ae → gray/white) */
@@ -317,6 +327,128 @@ function AssistantMarkdown({ content }: { content: string }) {
   );
 }
 
+type FlatSourceCitation = WorkerSourceRow & {
+  taskId: string;
+  round: number;
+  dimension: string;
+  factor: string;
+};
+
+function flattenWorkerSourceCitations(steps: ParallelPipelineStep[] | undefined): FlatSourceCitation[] {
+  if (!steps?.length) return [];
+  const out: FlatSourceCitation[] = [];
+  for (const s of steps) {
+    if (s.kind !== "worker") continue;
+    for (const src of s.result.sources) {
+      out.push({
+        taskId: s.task_id,
+        round: s.round,
+        dimension: s.result.dimension,
+        factor: s.result.factor,
+        ...src,
+      });
+    }
+  }
+  return out;
+}
+
+function workerStepsFingerprint(steps: ParallelPipelineStep[] | undefined): string {
+  if (!steps?.length) return "";
+  return steps
+    .filter((x): x is Extract<ParallelPipelineStep, { kind: "worker" }> => x.kind === "worker")
+    .map((w) => `${w.round}:${w.task_id}:${w.result.sources.map((r) => `${r.url}:${r.verbatim_extract?.length ?? 0}`).join(",")}`)
+    .join("|");
+}
+
+function VerbatimSourcesColumn({ steps }: { steps: ParallelPipelineStep[] | undefined }) {
+  const citations = useMemo(() => flattenWorkerSourceCitations(steps), [steps]);
+  const fingerprint = useMemo(() => workerStepsFingerprint(steps), [steps]);
+  const [visible, setVisible] = useState(0);
+  const timersRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
+    if (!citations.length) {
+      setVisible(0);
+      return;
+    }
+    setVisible(0);
+    const staggerMs = 90;
+    const initialMs = 200;
+    for (let i = 0; i < citations.length; i++) {
+      const id = window.setTimeout(() => {
+        setVisible((v) => Math.max(v, i + 1));
+      }, initialMs + i * staggerMs);
+      timersRef.current.push(id);
+    }
+    return () => {
+      timersRef.current.forEach(clearTimeout);
+      timersRef.current = [];
+    };
+  }, [fingerprint, citations.length]);
+
+  if (!citations.length) {
+    return (
+      <div className="rounded-xl border border-[#171616]/10 bg-white/50 px-3 py-4 text-sm leading-relaxed text-[#171616]/55">
+        No source URLs from research workers for this turn. Chat-only replies and fast paths do not include extractable
+        pages.
+      </div>
+    );
+  }
+
+  const shown = citations.slice(0, visible);
+
+  return (
+    <ul className="min-w-0 space-y-3">
+      {shown.map((c, idx) => (
+        <li
+          key={`${c.taskId}-${idx}-${c.url}`}
+          className="animate-in fade-in rounded-xl border border-[#171616]/12 bg-white/75 px-3 py-3 text-sm leading-[1.75] tracking-[0.0125em] text-[#171616] shadow-sm backdrop-blur-sm duration-200 [overflow-wrap:anywhere]"
+        >
+          {c.title ? (
+            <a
+              href={c.url}
+              className="mb-2 block text-[0.8125rem] font-semibold text-orange-900 underline decoration-orange-900/25 underline-offset-2 hover:decoration-orange-900/55"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              {c.title}
+            </a>
+          ) : (
+            <a
+              href={c.url}
+              className="mb-2 block break-all text-[0.8125rem] font-medium text-orange-900 underline decoration-orange-900/25 underline-offset-2 hover:decoration-orange-900/55"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              {c.url}
+            </a>
+          )}
+          {c.relevance ? (
+            <p className="mb-2 text-[0.9375rem] leading-relaxed text-[#171616]/88">
+              <span className="font-semibold text-[#171616]">Relevance: </span>
+              {c.relevance}
+            </p>
+          ) : null}
+          {c.verbatim_extract ? (
+            <blockquote className="mt-0 max-h-[min(70vh,32rem)] overflow-y-auto whitespace-pre-wrap border-l-2 border-[#2d5538]/45 pl-3 text-[0.9375rem] leading-relaxed text-[#171616]/88">
+              {c.verbatim_extract}
+            </blockquote>
+          ) : c.data_noted ? (
+            <p className="text-[0.9375rem] leading-relaxed text-[#171616]/88">
+              <span className="font-semibold text-[#171616]">No extract returned. </span>
+              {c.data_noted}
+            </p>
+          ) : (
+            <p className="text-[0.9375rem] leading-relaxed text-[#171616]/55">No extract text for this URL.</p>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function DemoChatView({
   chat,
   sourcePolicyMenuProps,
@@ -329,25 +461,79 @@ export function DemoChatView({
   onOpenSettings: () => void;
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { messages, draft, setDraft, loading, error, runSend, newChat } = chat;
-
-  const composerFilter = (
-    <ParallelSourcePolicyMenu
-      {...sourcePolicyMenuProps}
-      visualTheme="demo"
-      inlineTrigger
-      showTrigger
-      triggerIconOnly
-    />
-  );
+  const [sourcesSplitOpen, setSourcesSplitOpen] = useState(false);
+  const [tempHistoryItems, setTempHistoryItems] = useState<TempChatHistoryListItemV1[]>([]);
+  const [tempHistoryLoading, setTempHistoryLoading] = useState(false);
+  const {
+    messages,
+    draft,
+    setDraft,
+    loading,
+    error,
+    runSend,
+    newChat,
+    loadConversationFromWorkspace,
+    tempHistoryRevision,
+  } = chat;
 
   const chatStarted = messages.length > 0;
+
+  const refreshTempHistory = useCallback(async () => {
+    setTempHistoryLoading(true);
+    try {
+      const res = await fetch("/api/temp-chat-history");
+      const data: unknown = await res.json().catch(() => ({}));
+      const items =
+        typeof data === "object" && data !== null && "items" in data && Array.isArray((data as { items: unknown }).items)
+          ? (data as { items: TempChatHistoryListItemV1[] }).items
+          : [];
+      setTempHistoryItems(items);
+    } finally {
+      setTempHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    void refreshTempHistory();
+  }, [sidebarOpen, tempHistoryRevision, refreshTempHistory]);
+
+  async function handleLoadChat(id: string) {
+    const out = await loadConversationFromWorkspace(id);
+    if (out.ok) setSidebarOpen(false);
+  }
+
+  const composerFilter = (
+    <>
+      <button
+        type="button"
+        className={cn(
+          "flex size-9 shrink-0 items-center justify-center rounded-full border-0 bg-transparent text-[#2d5538] transition-colors hover:bg-[#171616]/8 disabled:opacity-40",
+          sourcesSplitOpen && "bg-[#171616]/10 text-[#171616] ring-2 ring-[#2d5538]/35 ring-offset-2 ring-offset-white/80",
+        )}
+        aria-pressed={sourcesSplitOpen}
+        aria-label={sourcesSplitOpen ? "Hide source citations column" : "Show source citations beside answer"}
+        title={sourcesSplitOpen ? "Hide sources" : "Show sources"}
+        onClick={() => setSourcesSplitOpen((v) => !v)}
+      >
+        <Eye className="size-[18px] shrink-0" strokeWidth={2} aria-hidden />
+      </button>
+      <ParallelSourcePolicyMenu
+        {...sourcePolicyMenuProps}
+        visualTheme="demo"
+        inlineTrigger
+        showTrigger
+        triggerIconOnly
+      />
+    </>
+  );
+
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!chatStarted) return;
     bottomRef.current?.scrollIntoView({ behavior: messages.length <= 1 ? "auto" : "smooth" });
-  }, [chatStarted, messages.length, loading]);
+  }, [chatStarted, messages.length, loading, sourcesSplitOpen]);
 
   return (
     <div className="font-claire flex min-h-0 flex-1 text-[#171616]" style={demoPageBgStyle}>
@@ -374,8 +560,35 @@ export function DemoChatView({
             <MessageSquarePlus className="size-4 shrink-0" />
             New chat
           </button>
-          <div className="mt-3 px-2 text-[11px] font-medium uppercase tracking-wide text-[#171616]/50">This chat</div>
-          <div className="rounded-lg bg-[#171616]/8 px-3 py-2 text-sm text-[#171616]">Current conversation</div>
+          <div className="mt-3 flex items-center gap-1.5 px-2 text-[11px] font-medium uppercase tracking-wide text-[#171616]/50">
+            <History className="size-3.5 opacity-70" aria-hidden />
+            Chat history
+          </div>
+          {tempHistoryLoading ? (
+            <p className="px-3 py-2 text-xs text-[#171616]/50">Loading…</p>
+          ) : tempHistoryItems.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-[#171616]/50">No saved chats yet.</p>
+          ) : (
+            <ul className="flex min-h-0 flex-col gap-1">
+              {tempHistoryItems.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => void handleLoadChat(item.id)}
+                    className="w-full rounded-lg border border-transparent bg-[#171616]/6 px-3 py-2 text-left text-sm text-[#171616] transition-colors hover:border-[#171616]/12 hover:bg-white/80"
+                  >
+                    <span className="line-clamp-2 font-medium [overflow-wrap:anywhere]">{item.title}</span>
+                    <span className="mt-0.5 block text-[11px] text-[#171616]/45">
+                      {new Date(item.savedAt).toLocaleString(undefined, {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
         <div className="mt-auto shrink-0 border-t border-[#171616]/12 p-2">
           <button
@@ -424,24 +637,42 @@ export function DemoChatView({
               )}
               aria-hidden={!chatStarted}
             >
-              <div className="mx-auto max-w-3xl px-4 pb-40 pt-8 sm:pt-10">
+              <div
+                className={cn(
+                  "mx-auto w-full px-4 pb-40 pt-8 sm:pt-10",
+                  chatStarted ? "max-w-6xl" : "max-w-3xl",
+                )}
+              >
                 <div className="space-y-10">
                   {messages.map((m, i) =>
                     m.role === "user" ? (
-                      <div key={i} className="flex justify-end">
-                        <div className="max-w-[min(100%,85%)] rounded-3xl border border-[#171616]/10 bg-white/80 px-4 py-2.5 text-[17px] leading-[1.75] tracking-[0.0125em] text-[#171616] shadow-sm backdrop-blur-sm">
+                      <div key={i} className="flex w-full justify-end">
+                        <div className="w-full rounded-3xl border border-[#171616]/10 bg-white/80 px-4 py-2.5 text-left text-[17px] leading-[1.75] tracking-[0.0125em] text-[#171616] shadow-sm backdrop-blur-sm">
                           <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{m.content}</p>
                         </div>
                       </div>
                     ) : (
-                      <article key={i} className="min-w-0">
-                        <AssistantMarkdown content={m.content} />
-                        <div className="mt-3 text-xs text-[#171616]/48">{m.duration ? m.duration : null}</div>
-                        {m.preference_notification ? (
-                          <div className="mt-3 rounded-xl border border-amber-200/90 bg-amber-50/90 px-3 py-2 text-xs text-amber-900">
-                            <span className="font-medium">Preference learned: </span>
-                            {m.preference_notification}
-                          </div>
+                      <article
+                        key={i}
+                        className={cn(
+                          "min-w-0",
+                          sourcesSplitOpen && "grid gap-8 border-b border-[#171616]/08 pb-10 last:border-b-0 md:grid-cols-2 md:gap-10 md:border-b-0 md:pb-0",
+                        )}
+                      >
+                        <div className="min-w-0 w-full">
+                          <AssistantMarkdown content={m.content} />
+                          <div className="mt-3 text-xs text-[#171616]/48">{m.duration ? m.duration : null}</div>
+                          {m.preference_notification ? (
+                            <div className="mt-3 rounded-xl border border-amber-200/90 bg-amber-50/90 px-3 py-2 text-xs text-amber-900">
+                              <span className="font-medium">Preference learned: </span>
+                              {m.preference_notification}
+                            </div>
+                          ) : null}
+                        </div>
+                        {sourcesSplitOpen ? (
+                          <aside className="min-w-0 md:border-l md:border-[#171616]/10 md:pl-8">
+                            <VerbatimSourcesColumn steps={m.pipeline_steps} />
+                          </aside>
                         ) : null}
                       </article>
                     ),
@@ -472,7 +703,7 @@ export function DemoChatView({
                   : "bottom-auto top-[44%] -translate-y-1/2 bg-none pb-4 pt-0",
               )}
             >
-              <div className="pointer-events-auto flex w-full max-w-3xl flex-col items-center">
+              <div className="pointer-events-auto flex w-full max-w-6xl flex-col items-center gap-3">
                 {!chatStarted ? (
                   <div className="flex w-full flex-col items-stretch gap-3">
                     {error ? (
@@ -483,27 +714,17 @@ export function DemoChatView({
                     <h2 className="text-center text-[2rem] font-semibold tracking-[-0.025em] text-[#171616] sm:text-[2.375rem] md:text-[2.625rem]">
                       What can I do for you?
                     </h2>
-                    <DemoComposer
-                      draft={draft}
-                      setDraft={setDraft}
-                      loading={loading}
-                      runSend={runSend}
-                      showSuggestionHints={!chatStarted}
-                      variant={chatStarted ? "chat" : "hero"}
-                      filterSlot={composerFilter}
-                    />
                   </div>
-                ) : (
-                  <DemoComposer
-                    draft={draft}
-                    setDraft={setDraft}
-                    loading={loading}
-                    runSend={runSend}
-                    showSuggestionHints={!chatStarted}
-                    variant={chatStarted ? "chat" : "hero"}
-                    filterSlot={composerFilter}
-                  />
-                )}
+                ) : null}
+                <DemoComposer
+                  draft={draft}
+                  setDraft={setDraft}
+                  loading={loading}
+                  runSend={runSend}
+                  showSuggestionHints={!chatStarted}
+                  variant={chatStarted ? "chat" : "hero"}
+                  filterSlot={composerFilter}
+                />
               </div>
             </div>
           </div>

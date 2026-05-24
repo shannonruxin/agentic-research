@@ -483,6 +483,8 @@ export interface WorkerSourceRow {
   title?: string;
   relevance: string;
   data_noted: string;
+  /** Agent 4: Parallel `beta.extract` body text (excerpts / full_content), attached server-side after the worker runs */
+  verbatim_extract?: string;
 }
 
 export interface WorkerOutput {

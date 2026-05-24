@@ -80,6 +80,6 @@ export async function readWorkspaceText(filePath: string): Promise<string> {
 }
 
 export async function writeWorkspaceText(filePath: string, content: string): Promise<void> {
-  await ensureWorkspaceDir();
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, content, "utf8");
 }
