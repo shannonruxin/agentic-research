@@ -7,7 +7,14 @@ import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { SyncConvexUser } from "@/components/SyncConvexUser";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-const convex = convexUrl ? new ConvexReactClient(convexUrl) : null;
+const convex = convexUrl
+  ? new ConvexReactClient(convexUrl, {
+      // Suppress the "Are you sure you want to leave? Your changes may not be saved."
+      // popup that Convex fires on navigation/redirect while requests are in flight
+      // (e.g. when Clerk's <UserButton /> triggers a session refresh on first mount).
+      unsavedChangesWarning: false,
+    })
+  : null;
 
 /**
  * Next.js App Router: `ClerkProvider` must wrap `ConvexProviderWithClerk` (see Convex + Clerk guide).

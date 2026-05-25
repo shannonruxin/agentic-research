@@ -11,7 +11,7 @@ import { ResearchAdvancedSettingsForm } from "@/components/ResearchAdvancedSetti
 import type { ResearchChatController } from "@/hooks/useResearchChat";
 import { cn } from "@/lib/utils";
 
-type UiMode = "sandbox" | "sandbox2" | "verbatim" | "research" | "demo";
+type UiMode = "sandbox2" | "research" | "demo";
 
 type AppSettingsSheetProps = {
   open: boolean;
@@ -62,7 +62,7 @@ export function AppSettingsSheet({
   const chatForAdvanced: ResearchChatController =
     mode === "research" ? researchChat : mode === "demo" ? demoChat : researchTarget === "research" ? researchChat : demoChat;
 
-  const showFloatingTrigger = mode !== "demo";
+  const showFloatingTrigger = true;
 
   const modeBtn = (m: UiMode, label: string) => (
     <button
@@ -142,9 +142,7 @@ export function AppSettingsSheet({
                       role="group"
                       aria-label="UI mode"
                     >
-                      {modeBtn("sandbox", "Sandbox")}
                       {modeBtn("sandbox2", "Sandbox2")}
-                      {modeBtn("verbatim", "Verbatim")}
                       {modeBtn("research", "Research")}
                       {modeBtn("demo", "Demo")}
                     </div>

@@ -1,66 +1,19 @@
 import type Parallel from "parallel-web";
-import type {
-  Agent3EvidencePlan,
-  AIAnswerOutput,
-  ExtractBundle,
-  RetrievedPage,
-  WorkerOutput,
-} from "@/lib/types";
+import type { ExtractBundle, RetrievedPage, WorkerOutput } from "@/lib/types";
 import { createParallelClient } from "@/lib/parallelClient";
 
 const URL_CHUNK_SIZE = 6;
 const MAX_CHARS_PER_RESULT = 100_000;
 
-export class Agent4ExtractError extends Error {
-  override readonly name = "Agent4ExtractError";
-
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
-  }
-}
-
-/** Canonical URL key for `ExtractBundle` (must match across collect + merge). */
-export function normalizeExtractUrl(url: string): string {
+function normalizeExtractUrl(url: string): string {
   const t = url.trim();
   try {
     const u = new URL(t);
     u.hash = "";
-    // Drop default ports; keep path for equality
     return u.toString();
   } catch {
     return t;
   }
-}
-
-/**
- * Union URLs from Agent 3 resources ∪ AIAnswer declared_sources; dedupe; stable order.
- */
-export function collectExtractUrls(
-  aiAnswer: AIAnswerOutput,
-  agent3Plan: Agent3EvidencePlan,
-): string[] {
-  const seen = new Set<string>();
-  const ordered: string[] = [];
-
-  function add(u: string) {
-    const key = normalizeExtractUrl(u);
-    if (!key) return;
-    if (seen.has(key)) return;
-    seen.add(key);
-    ordered.push(key);
-  }
-
-  for (const row of agent3Plan.resources) {
-    if (row.url?.trim()) {
-      add(row.url);
-    }
-  }
-  for (const s of aiAnswer.declared_sources) {
-    if (s.url?.trim()) {
-      add(s.url);
-    }
-  }
-  return ordered;
 }
 
 function yearFromPublishDate(publishDate?: string | null): number | null {
@@ -159,10 +112,7 @@ async function extractChunk(
   return out;
 }
 
-/**
- * Run Agent 4 (`beta.extract`) over an explicit URL list (deduped). Returns `{}` if there are no URLs or no API key.
- */
-export async function buildExtractBundleFromUrls(urls: string[]): Promise<ExtractBundle> {
+async function buildExtractBundleFromUrls(urls: string[]): Promise<ExtractBundle> {
   const seen = new Set<string>();
   const ordered: string[] = [];
   for (const u of urls) {
@@ -222,36 +172,4 @@ export async function enrichWorkerOutputWithAgent4Extract(output: WorkerOutput):
   });
 
   return { ...output, sources };
-}
-
-/**
- * Concurrent Parallel **`beta.extract`** over deduped URLs; chunked requests; full **`ExtractBundle`**.
- */
-export async function buildExtractBundle(
-  aiAnswer: AIAnswerOutput,
-  agent3Plan: Agent3EvidencePlan,
-): Promise<ExtractBundle> {
-  if (!aiAnswer.answer_text?.trim()) {
-    throw new Agent4ExtractError("aiAnswer.answer_text is required.");
-  }
-  const urls = collectExtractUrls(aiAnswer, agent3Plan);
-  if (urls.length === 0) {
-    return {};
-  }
-
-  let client: Parallel;
-  try {
-    client = createParallelClient();
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Parallel client configuration error";
-    throw new Agent4ExtractError(msg);
-  }
-
-  const bundle: ExtractBundle = {};
-  for (let i = 0; i < urls.length; i += URL_CHUNK_SIZE) {
-    const chunk = urls.slice(i, i + URL_CHUNK_SIZE);
-    const part = await extractChunk(client, chunk);
-    Object.assign(bundle, part);
-  }
-  return bundle;
 }

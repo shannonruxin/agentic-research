@@ -4,18 +4,14 @@ import { useMemo, useState } from "react";
 import { AppSettingsSheet } from "@/components/AppSettingsSheet";
 import type { ParallelSourcePolicyMenuProps } from "@/components/ParallelSourcePolicyMenu";
 import { DemoChatView } from "@/components/DemoChatView";
-import { ProductionChatView } from "@/components/ProductionChatView";
 import { ResearchChatView } from "@/components/ResearchChatView";
 import { Sandbox2PipelinePage } from "@/components/Sandbox2PipelinePage";
-import { SandboxPipelinePage } from "@/components/SandboxPipelinePage";
 import { useResearchChat } from "@/hooks/useResearchChat";
 import { parallelSourcePolicyRequestFromLists } from "@/lib/parallelSourcePolicy";
 
 export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [mode, setMode] = useState<"sandbox" | "sandbox2" | "verbatim" | "research" | "demo">(
-    "demo",
-  );
+  const [mode, setMode] = useState<"sandbox2" | "research" | "demo">("demo");
 
   const [excludedDomains, setExcludedDomains] = useState<string[]>(["wikipedia.org"]);
   const [includedDomains, setIncludedDomains] = useState<string[]>([]);
@@ -63,17 +59,9 @@ export default function Home() {
         demoChat={demoChat}
       />
 
-      {mode === "sandbox" ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <SandboxPipelinePage sourcePolicyRequest={sourcePolicyRequest} />
-        </div>
-      ) : mode === "sandbox2" ? (
+      {mode === "sandbox2" ? (
         <div className="flex min-h-0 flex-1 flex-col">
           <Sandbox2PipelinePage />
-        </div>
-      ) : mode === "verbatim" ? (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <ProductionChatView sourcePolicyRequest={sourcePolicyRequest} />
         </div>
       ) : mode === "research" ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">

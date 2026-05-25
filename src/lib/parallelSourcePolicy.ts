@@ -4,7 +4,7 @@
  * Docs: https://docs.parallel.ai/resources/source-policy — **10 domains max** per `include_domains` and per
  * `exclude_domains` (Parallel validation). Longer lists are truncated to 10 when building `source_policy`.
  *
- * Configure defaults via env (Agent 3 + `/api/parallel-search` merge with request body):
+ * Configure defaults via env (workers merge these with the per-request body):
  * - `PARALLEL_SEARCH_EXCLUDE_DOMAINS` — comma-separated hostnames (e.g. `wikipedia.org,reddit.com`)
  * - `PARALLEL_SEARCH_INCLUDE_DOMAINS` — optional comma list (maps to Parallel `include_domains` / Prioritized UI)
  * - `PARALLEL_SEARCH_AFTER_DATE` — optional `YYYY-MM-DD` (published on or after)
