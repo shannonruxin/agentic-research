@@ -6,7 +6,7 @@ import type {
   UserPreference,
 } from "@/lib/types";
 
-export function emptyUserPreferences(): DomainManualUserPreferences {
+function emptyUserPreferences(): DomainManualUserPreferences {
   return { global: [], conditional: [], pending_promotions: [] };
 }
 

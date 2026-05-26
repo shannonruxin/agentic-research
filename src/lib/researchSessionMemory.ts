@@ -21,26 +21,6 @@ export function nextResearchTurnKey(doc: Record<string, unknown>): string {
   return String(m + 1);
 }
 
-/**
- * Agent 7 must not receive prior turns' full `document` markdown or duplicate finalization text in
- * context — it will often regurgitate them. The on-disk `chat-memory.json` stays complete; this is
- * **prompt-only** sanitization.
- */
-export function stripResearchMemoryForAgent7Prompt(raw: string): string {
-  const t = raw.trim();
-  if (!t) return "";
-  const doc = parseChatMemoryFile(t);
-  for (const k of Object.keys(doc)) {
-    if (!/^\d+$/.test(k)) continue;
-    const turn = doc[k];
-    if (turn === null || typeof turn !== "object" || Array.isArray(turn)) continue;
-    const uo = (turn as Record<string, unknown>)["user-output"];
-    if (uo === null || typeof uo !== "object" || Array.isArray(uo)) continue;
-    (turn as Record<string, unknown>)["user-output"] = sanitizeUserOutputForPrompt(uo as Record<string, unknown>);
-  }
-  return JSON.stringify(doc, null, 2);
-}
-
 // --- Compact prompt for Agent 7: avoid sending full Agent 3/6 loop JSON in every turn. ---
 
 const TURN = /^\d+$/;

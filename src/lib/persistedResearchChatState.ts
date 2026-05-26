@@ -11,9 +11,6 @@ export type PersistedChatMessage =
       pipeline_steps?: ParallelPipelineStep[];
     };
 
-/** @deprecated Use `PersistedChatMessage` */
-export type PersistedResearchChatMessage = PersistedChatMessage;
-
 export type PersistedResearchChatState = {
   messages: PersistedChatMessage[];
   draft: string;

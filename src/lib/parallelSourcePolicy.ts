@@ -74,7 +74,7 @@ function capParallelDomainList(list: string[] | undefined): string[] | undefined
 /**
  * Normalize policy: valid dates; include and exclude may both be present; domain lists capped per Parallel.
  */
-export function normalizeParallelSourcePolicy(
+function normalizeParallelSourcePolicy(
   policy: ParallelSourcePolicy | null | undefined,
 ): ParallelSourcePolicy | null {
   if (!policy || Object.keys(policy).length === 0) return null;

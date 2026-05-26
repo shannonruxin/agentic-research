@@ -152,7 +152,7 @@ export async function runPreferencesAgent(input: {
   return output;
 }
 
-export function checkPendingPromotions(prefs: DomainManualUserPreferences): {
+function checkPendingPromotions(prefs: DomainManualUserPreferences): {
   promoted: UserPreference[];
   updatedPending: PendingPromotion[];
 } {

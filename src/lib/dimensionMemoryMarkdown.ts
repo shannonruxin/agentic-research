@@ -627,8 +627,9 @@ export async function appendSingleTurnToDimensionMarkdown(
 /**
  * Full rebuild of `workspace/chat-dimension-memory/*.md` from the current chat-memory.json object.
  * One markdown file per dimension id; global / unscoped content goes to objective-scope.md.
+ * Not called in the normal pipeline (which uses append-only); useful for one-off repairs.
  */
-export async function rebuildDimensionMarkdownFiles(doc: Record<string, unknown>): Promise<void> {
+async function rebuildDimensionMarkdownFiles(doc: Record<string, unknown>): Promise<void> {
   await fs.mkdir(CHAT_DIMENSION_MEMORY_DIR, { recursive: true });
 
   const dimIds = new Set<string>();
@@ -714,10 +715,11 @@ export async function rebuildDimensionMarkdownFiles(doc: Record<string, unknown>
   }
 }
 
-export async function rebuildDimensionMarkdownFromJsonString(raw: string): Promise<void> {
+async function rebuildDimensionMarkdownFromJsonString(raw: string): Promise<void> {
   const doc = parseChatMemoryFile(raw);
   await rebuildDimensionMarkdownFiles(doc);
 }
+
 
 export async function clearDimensionMarkdownDir(): Promise<void> {
   await fs.mkdir(CHAT_DIMENSION_MEMORY_DIR, { recursive: true });

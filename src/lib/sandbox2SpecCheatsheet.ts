@@ -56,27 +56,6 @@ Output (OrchestratorDeliverOutput):
 - findings_summary — { key, value } for persistence.
 - investment_thesis — Concise 2–4 sentence thesis statement.`;
 
-export const PLANNER_CHEATSHEET = `Planner (Legacy) — decompose objective into parallel tasks
-
-Input
-- objective (required) — User's research request.
-- subject_scope (optional) — In-scope subject, out-of-scope rules, disambiguation.
-- domain_manual — Loaded from workspace/domain-manuals/domain-manual.json (includes user_preferences).
-- conversation_context — Summary of prior turns (auto-built from chat-memory.json; per-dimension slices live under chat-dimension-memory/).
-- user_preferences_summary — Extracted applicable preferences.
-- research_hygiene (optional) — Citation rules, sourcing norms.
-- prior_key_findings, prior_dimensions, prior_known_gaps (optional) — From earlier conversation turns.
-
-Output (PlannerOutput)
-- objective_understanding — Restatement of what success looks like.
-- dimensions — 1–16 thematic lenses (e.g. market_size, technology, competitors).
-- known_gaps — Grouped missing info.
-- tasks — 2–12 PlannerResearchTask objects, each with:
-  - task_id, dimension, factor, goal, search_guidance (2–10 queries), variables_to_find, extraction_focus, priority, follow_domain_manual
-- execution_strategy: "all_parallel" | "two_phase"
-  - two_phase: profile_task_id runs first, its results are shared with remaining tasks.
-- reasoning — How inputs map to task decomposition.`;
-
 export const WORKER_CHEATSHEET = `Research Worker — execute one research task with web search
 
 Input
@@ -100,25 +79,6 @@ Output (WorkerOutput)
 - gaps_remaining — What could not be found.
 - search_queries_used — All queries executed.
 - rabbithole_leads — 0–5 high-signal threads worth deeper investigation (specific leads, not restated gaps).`;
-
-export const SYNTHESIZER_CHEATSHEET = `Synthesizer (Legacy) — merge worker results into unified report
-
-Input
-- objective, subject_scope, domain_manual, user_preferences_summary, research_hygiene — Same as planner.
-- worker_results — Array of WorkerOutput from all workers (across all rounds).
-- prior_key_findings, prior_dimensions, prior_known_gaps (optional).
-- round — Current round number (1-indexed).
-- max_rounds — Maximum allowed rounds.
-
-Output (SynthesizerOutput)
-- user_facing_document — Complete Markdown report (executive summary, sections, sources).
-- key_findings — Structured JSON findings by dimension.
-- dimensions — Final set of research dimensions.
-- known_gaps — What remains unknown.
-- findings_summary — Rolling summary { key, value } for persistence.
-- coverage_assessment — Per-dimension score (0.0–1.0) with reasoning.
-- dig_deeper — Follow-up tasks for under-covered dimensions (max 6).
-- should_continue — true when dig_deeper has tasks AND coverage is insufficient.`;
 
 export const FULL_PIPELINE_CHEATSHEET = `Full Pipeline — end-to-end orchestrator-driven research
 

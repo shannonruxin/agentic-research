@@ -10,14 +10,7 @@ const WORKSPACE_DIR = path.join(process.cwd(), "workspace");
 export const CHAT_MEMORY_FILE = path.join(WORKSPACE_DIR, "chat-memory.json");
 /** One markdown file per dimension under `workspace/chat-dimension-memory/` — derived from `chat-memory.json`. */
 export const CHAT_DIMENSION_MEMORY_DIR = path.join(WORKSPACE_DIR, "chat-dimension-memory");
-/** Sandbox "Run until final user output" 7↔3 loop (legacy chrono + findings summary format). */
-export const SANDBOX_73_MEMORY_FILE = path.join(WORKSPACE_DIR, "sandbox-73-memory.json");
 export const USER_OUTPUT_FILE = path.join(WORKSPACE_DIR, "user-output.md");
-/**
- * Overwritten on each Agent 7 `generateObject` call (research cycle + max-iter finalize) with
- * the **literal** `system` + `user` strings last sent to the model.
- */
-export const CONTEXT_BUILDER_FILE = path.join(WORKSPACE_DIR, "context-bridge.json");
 /**
  * Authoritative domain manual JSON for Agent 7 (orchestrator context) and optional Agent 3/6 (when
  * `research_task.follow_domain_manual` is not false). Edit on disk; APIs do not accept overrides.
@@ -61,10 +54,6 @@ export async function loadWorkspaceDomainManualOrDefault(
     return explicit;
   }
   return readWorkspaceJsonObject(DOMAIN_MANUAL_FILE);
-}
-
-export async function ensureWorkspaceDir(): Promise<void> {
-  await fs.mkdir(WORKSPACE_DIR, { recursive: true });
 }
 
 export async function readWorkspaceText(filePath: string): Promise<string> {
