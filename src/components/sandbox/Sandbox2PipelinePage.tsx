@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { IntentRouterSandbox } from "@/components/sandbox2/IntentRouterSandbox";
-import { OrchestratorSandbox } from "@/components/sandbox2/OrchestratorSandbox";
-import { WorkerSandbox } from "@/components/sandbox2/WorkerSandbox";
-import { FullPipelineSandbox } from "@/components/sandbox2/FullPipelineSandbox";
+import { IntentRouterSandbox } from "@/components/sandbox/IntentRouterSandbox";
+import { OrchestratorSandbox } from "@/components/sandbox/OrchestratorSandbox";
+import { WorkerSandbox } from "@/components/sandbox/WorkerSandbox";
+import { FullPipelineSandbox } from "@/components/sandbox/FullPipelineSandbox";
 
 export function Sandbox2PipelinePage() {
   const [pipelineBusy, setPipelineBusy] = useState(false);

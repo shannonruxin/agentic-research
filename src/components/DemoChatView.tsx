@@ -14,7 +14,7 @@ import ReactMarkdown from "react-markdown";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import remarkGfm from "remark-gfm";
 import type { ResearchChatController } from "@/hooks/useResearchChat";
-import type { TempChatHistoryListItemV1 } from "@/lib/persistedResearchChatState";
+import type { SessionListItem } from "@/app/api/sessions/route";
 import type { ParallelSourcePolicyMenuProps } from "@/components/ParallelSourcePolicyMenu";
 import { ParallelSourcePolicyMenu } from "@/components/ParallelSourcePolicyMenu";
 import type { ParallelPipelineStep, WorkerSourceRow } from "@/lib/types";
@@ -462,8 +462,8 @@ export function DemoChatView({
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sourcesSplitOpen, setSourcesSplitOpen] = useState(false);
-  const [tempHistoryItems, setTempHistoryItems] = useState<TempChatHistoryListItemV1[]>([]);
-  const [tempHistoryLoading, setTempHistoryLoading] = useState(false);
+  const [sessionItems, setSessionItems] = useState<SessionListItem[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
   const {
     messages,
     draft,
@@ -472,36 +472,31 @@ export function DemoChatView({
     error,
     runSend,
     newChat,
-    loadConversationFromWorkspace,
-    tempHistoryRevision,
+    loadSession,
+    sessionRevision,
   } = chat;
 
   const chatStarted = messages.length > 0;
 
-  const refreshTempHistory = useCallback(async () => {
-    setTempHistoryLoading(true);
+  const refreshSessions = useCallback(async () => {
+    setSessionsLoading(true);
     try {
-      const res = await fetch("/api/temp-chat-history");
+      const res = await fetch("/api/sessions");
       const data: unknown = await res.json().catch(() => ({}));
-      const items =
-        typeof data === "object" && data !== null && "items" in data && Array.isArray((data as { items: unknown }).items)
-          ? (data as { items: TempChatHistoryListItemV1[] }).items
+      const sessions =
+        typeof data === "object" && data !== null && "sessions" in data && Array.isArray((data as { sessions: unknown }).sessions)
+          ? (data as { sessions: SessionListItem[] }).sessions
           : [];
-      setTempHistoryItems(items);
+      setSessionItems(sessions);
     } finally {
-      setTempHistoryLoading(false);
+      setSessionsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (!sidebarOpen) return;
-    void refreshTempHistory();
-  }, [sidebarOpen, tempHistoryRevision, refreshTempHistory]);
-
-  async function handleLoadChat(id: string) {
-    const out = await loadConversationFromWorkspace(id);
-    if (out.ok) setSidebarOpen(false);
-  }
+    if (sidebarOpen) void refreshSessions();
+    else setSessionItems([]);
+  }, [sidebarOpen, sessionRevision, refreshSessions]);
 
   const composerFilter = (
     <>
@@ -564,21 +559,25 @@ export function DemoChatView({
             <History className="size-3.5 opacity-70" aria-hidden />
             Chat history
           </div>
-          {tempHistoryLoading ? (
+          {sessionsLoading ? (
             <p className="px-3 py-2 text-xs text-[#171616]/50">Loading…</p>
-          ) : tempHistoryItems.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-[#171616]/50">No saved chats yet.</p>
+          ) : sessionItems.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-[#171616]/50">No sessions yet.</p>
           ) : (
             <ul className="flex min-h-0 flex-col gap-1">
-              {tempHistoryItems.map((item) => (
-                <li key={item.id}>
+              {sessionItems.map((item) => (
+                <li key={item.sessionId}>
                   <button
                     type="button"
-                    onClick={() => void handleLoadChat(item.id)}
+                    onClick={async () => {
+                      const out = await loadSession(item.sessionId);
+                      if (out.ok) setSidebarOpen(false);
+                    }}
                     className="w-full rounded-lg border border-transparent bg-[#171616]/6 px-3 py-2 text-left text-sm text-[#171616] transition-colors hover:border-[#171616]/12 hover:bg-white/80"
                   >
                     <span className="line-clamp-2 font-medium [overflow-wrap:anywhere]">{item.title}</span>
                     <span className="mt-0.5 block text-[11px] text-[#171616]/45">
+                      {item.turnCount} {item.turnCount === 1 ? "turn" : "turns"} ·{" "}
                       {new Date(item.savedAt).toLocaleString(undefined, {
                         dateStyle: "medium",
                         timeStyle: "short",

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import type { LoadedSession } from "@/app/api/sessions/[sessionId]/route";
 import type { ParallelSourcePolicyRequest } from "@/lib/parallelSourcePolicy";
-import type { PersistedResearchChatState, TempChatHistoryFileV1 } from "@/lib/persistedResearchChatState";
 import type { Agent7Dimension, Agent7KnownGapGroup, ParallelPipelineStep } from "@/lib/types";
 
 export type ResearchChatMessage =
@@ -101,9 +101,11 @@ export function useResearchChat(options?: UseResearchChatOptions) {
   const [workerTemp, setWorkerTemp] = useState("0.2");
   const [deliverMaxTokens, setDeliverMaxTokens] = useState("16000");
 
-  const [chatId, setChatId] = useState(() => crypto.randomUUID());
-  const [tempHistoryRevision, setTempHistoryRevision] = useState(0);
-  const persistSnapshotRef = useRef<PersistedResearchChatState | null>(null);
+  /** Increments whenever the session list on disk changes (send completed or sessions cleared). */
+  const [sessionRevision, setSessionRevision] = useState(0);
+
+  /** True when the user clicked "New chat" but hasn't sent a message yet. Session bumps on first send. */
+  const pendingNewSessionRef = useRef(false);
 
   async function runSend() {
     const text = draft.trim();
@@ -111,30 +113,15 @@ export function useResearchChat(options?: UseResearchChatOptions) {
     setError(null);
 
     const mem = tryParseJsonObject(memoryText, "memory");
-    if (!mem.ok) {
-      setError(mem.error);
-      return;
-    }
+    if (!mem.ok) { setError(mem.error); return; }
     const hy = tryParseJsonObject(researchHygieneText, "research_hygiene");
-    if (!hy.ok) {
-      setError(hy.error);
-      return;
-    }
+    if (!hy.ok) { setError(hy.error); return; }
     const kg = tryParseKnownGaps(knownGapsText);
-    if (!kg.ok) {
-      setError(kg.error);
-      return;
-    }
+    if (!kg.ok) { setError(kg.error); return; }
     const dim = tryParseDimensions(dimensionsText);
-    if (!dim.ok) {
-      setError(dim.error);
-      return;
-    }
+    if (!dim.ok) { setError(dim.error); return; }
     const kf = tryParseJsonObject(keyFindingsText, "key_findings");
-    if (!kf.ok) {
-      setError(kf.error);
-      return;
-    }
+    if (!kf.ok) { setError(kf.error); return; }
 
     const kfValue =
       Object.keys(kf.value).length > 0
@@ -148,6 +135,16 @@ export function useResearchChat(options?: UseResearchChatOptions) {
     setDraft("");
     setMessages((m) => [...m, { role: "user", content: text }]);
     setLoading(true);
+
+    // If the user clicked "New chat", bump the session pointer now (lazy — only on actual send).
+    if (pendingNewSessionRef.current) {
+      pendingNewSessionRef.current = false;
+      try {
+        await fetch("/api/new-session", { method: "POST" });
+      } catch {
+        // non-fatal — worst case we append to the previous session
+      }
+    }
 
     const body: Record<string, unknown> = { message: text };
     if (Object.keys(mem.value).length) body.memory = mem.value;
@@ -220,6 +217,8 @@ export function useResearchChat(options?: UseResearchChatOptions) {
           pipeline_steps: Array.isArray(ok.steps) ? ok.steps : undefined,
         },
       ]);
+      // Signal sidebar to refresh — a new turn was written to session storage.
+      setSessionRevision((n) => n + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Network error");
       setMessages((m) => m.slice(0, -1));
@@ -228,159 +227,25 @@ export function useResearchChat(options?: UseResearchChatOptions) {
     }
   }
 
-  function capturePersistedState(): PersistedResearchChatState {
-    return {
-      messages: messages.map((m) => ({ ...m })),
-      draft,
-      subjectScopeText,
-      researchHygieneText,
-      memoryText,
-      knownGapsText,
-      dimensionsText,
-      keyFindingsText,
-      keyFindingsSeed,
-      dimensionsSeed,
-      knownGapsSeed,
-      sessionPreferences: sessionPreferences.map((p) => ({ ...p })),
-      maxRounds,
-      maxWorkersConcurrent,
-      workerStaggerMs,
-      maxWorkerSteps,
-      maxTasksPerRound,
-      orchestratorTemp,
-      workerTemp,
-      deliverMaxTokens,
-    };
-  }
-
-  function applyPersistedState(s: PersistedResearchChatState) {
-    setMessages(s.messages as ResearchChatMessage[]);
-    setDraft(s.draft);
-    setSubjectScopeText(s.subjectScopeText);
-    setResearchHygieneText(s.researchHygieneText);
-    setMemoryText(s.memoryText);
-    setKnownGapsText(s.knownGapsText);
-    setDimensionsText(s.dimensionsText);
-    setKeyFindingsText(s.keyFindingsText);
-    setKeyFindingsSeed(s.keyFindingsSeed);
-    setDimensionsSeed(s.dimensionsSeed);
-    setKnownGapsSeed(s.knownGapsSeed);
-    setSessionPreferences(s.sessionPreferences.map((p) => ({ ...p })));
-    setMaxRounds(s.maxRounds);
-    setMaxWorkersConcurrent(s.maxWorkersConcurrent);
-    setWorkerStaggerMs(s.workerStaggerMs);
-    setMaxWorkerSteps(s.maxWorkerSteps);
-    setMaxTasksPerRound(s.maxTasksPerRound);
-    setOrchestratorTemp(s.orchestratorTemp);
-    setWorkerTemp(s.workerTemp);
-    setDeliverMaxTokens(s.deliverMaxTokens);
-  }
-
-  persistSnapshotRef.current = capturePersistedState();
-
-  useEffect(() => {
-    if (messages.length === 0) return;
-    const cid = chatId;
-    let cancelled = false;
-    const tid = window.setTimeout(() => {
-      const snap = persistSnapshotRef.current;
-      if (!snap || snap.messages.length === 0 || cancelled) return;
-      void (async () => {
-        try {
-          const res = await fetch("/api/temp-chat-history", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ chatId: cid, state: snap }),
-          });
-          if (!cancelled && res.ok) setTempHistoryRevision((n) => n + 1);
-        } catch {
-          // autosave failures are silent
-        }
-      })();
-    }, 550);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(tid);
-    };
-  }, [
-    chatId,
-    messages,
-    draft,
-    subjectScopeText,
-    researchHygieneText,
-    memoryText,
-    knownGapsText,
-    dimensionsText,
-    keyFindingsText,
-    keyFindingsSeed,
-    dimensionsSeed,
-    knownGapsSeed,
-    sessionPreferences,
-    maxRounds,
-    maxWorkersConcurrent,
-    workerStaggerMs,
-    maxWorkerSteps,
-    maxTasksPerRound,
-    orchestratorTemp,
-    workerTemp,
-    deliverMaxTokens,
-  ]);
-
-  async function loadConversationFromWorkspace(id: string) {
+  async function clearAllSessions() {
     setError(null);
     try {
-      const res = await fetch(`/api/temp-chat-history/${encodeURIComponent(id)}`);
-      const data: unknown = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const err =
-          typeof data === "object" && data !== null && "error" in data
-            ? String((data as { error: unknown }).error)
-            : "Could not load chat";
-        setError(err);
-        return { ok: false as const, error: err };
-      }
-      if (typeof data !== "object" || data === null) {
-        setError("Invalid save file");
-        return { ok: false as const, error: "Invalid save file" };
-      }
-      const doc = data as TempChatHistoryFileV1;
-      if (
-        doc.version !== 1 ||
-        typeof doc.id !== "string" ||
-        typeof doc.state !== "object" ||
-        doc.state === null ||
-        Array.isArray(doc.state)
-      ) {
-        setError("Invalid save file");
-        return { ok: false as const, error: "Invalid save file" };
-      }
-      applyPersistedState(doc.state);
-      setChatId(doc.id);
-      return { ok: true as const };
-    } catch (e) {
-      const err = e instanceof Error ? e.message : "Could not load chat";
-      setError(err);
-      return { ok: false as const, error: err };
-    }
-  }
-
-  async function newChat() {
-    setError(null);
-    try {
-      const res = await fetch("/api/research-clear-chat-memory", { method: "POST" });
+      const res = await fetch("/api/clear-all-sessions", { method: "POST" });
       if (!res.ok) {
         const data: unknown = await res.json().catch(() => ({}));
-        const err =
+        setError(
           typeof data === "object" && data !== null && "error" in data
             ? String((data as { error: unknown }).error)
-            : "Could not clear chat memory";
-        setError(err);
+            : "Could not clear sessions",
+        );
         return;
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not clear chat memory");
+      setError(e instanceof Error ? e.message : "Could not clear sessions");
       return;
     }
+    // Pointer is back to 0 — next send goes to session0, no bump needed.
+    pendingNewSessionRef.current = false;
     setMessages([]);
     setKeyFindingsSeed(undefined);
     setDimensionsSeed(undefined);
@@ -389,7 +254,53 @@ export function useResearchChat(options?: UseResearchChatOptions) {
     setDimensionsText("");
     setKnownGapsText("");
     setSessionPreferences([]);
-    setChatId(crypto.randomUUID());
+    setSessionRevision((n) => n + 1);
+  }
+
+  async function loadSession(sessionId: number): Promise<{ ok: boolean }> {
+    setError(null);
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}`, { method: "POST" });
+      const data: unknown = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err =
+          typeof data === "object" && data !== null && "error" in data
+            ? String((data as { error: unknown }).error)
+            : "Could not load session";
+        setError(err);
+        return { ok: false };
+      }
+      const loaded = data as LoadedSession;
+      // Pointer is now switched server-side — no pending bump needed.
+      pendingNewSessionRef.current = false;
+      setMessages(loaded.messages as ResearchChatMessage[]);
+      setKeyFindingsSeed(
+        loaded.keyFindings && Object.keys(loaded.keyFindings).length ? loaded.keyFindings : undefined,
+      );
+      setDimensionsSeed(loaded.dimensions.length ? loaded.dimensions : undefined);
+      setKnownGapsSeed(loaded.knownGaps.length ? loaded.knownGaps : undefined);
+      setKeyFindingsText(loaded.keyFindings ? JSON.stringify(loaded.keyFindings, null, 2) : "");
+      setDimensionsText(loaded.dimensions.length ? JSON.stringify(loaded.dimensions, null, 2) : "");
+      setKnownGapsText(loaded.knownGaps.length ? JSON.stringify(loaded.knownGaps, null, 2) : "");
+      setSessionPreferences([]);
+      return { ok: true };
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load session");
+      return { ok: false };
+    }
+  }
+
+  function newChat() {
+    pendingNewSessionRef.current = true;
+    setError(null);
+    setMessages([]);
+    setKeyFindingsSeed(undefined);
+    setDimensionsSeed(undefined);
+    setKnownGapsSeed(undefined);
+    setKeyFindingsText("");
+    setDimensionsText("");
+    setKnownGapsText("");
+    setSessionPreferences([]);
   }
 
   return {
@@ -430,9 +341,9 @@ export function useResearchChat(options?: UseResearchChatOptions) {
     setDeliverMaxTokens,
     runSend,
     newChat,
-    loadConversationFromWorkspace,
-    chatId,
-    tempHistoryRevision,
+    loadSession,
+    clearAllSessions,
+    sessionRevision,
   };
 }
 

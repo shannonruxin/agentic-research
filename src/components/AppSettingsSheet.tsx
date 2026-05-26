@@ -1,8 +1,8 @@
 "use client";
 
 import { UserButton } from "@clerk/nextjs";
-import { ChevronLeft, ChevronRight, ListFilter, Settings } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { ChevronLeft, ChevronRight, ListFilter, RotateCcw, Settings } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   ParallelSourcePolicyMenu,
   type ParallelSourcePolicyMenuProps,
@@ -11,7 +11,7 @@ import { ResearchAdvancedSettingsForm } from "@/components/ResearchAdvancedSetti
 import type { ResearchChatController } from "@/hooks/useResearchChat";
 import { cn } from "@/lib/utils";
 
-type UiMode = "sandbox2" | "research" | "demo";
+type UiMode = "sandbox" | "demo";
 
 type AppSettingsSheetProps = {
   open: boolean;
@@ -19,7 +19,6 @@ type AppSettingsSheetProps = {
   mode: UiMode;
   onModeChange: (mode: UiMode) => void;
   sourcePolicyMenuProps: ParallelSourcePolicyMenuProps;
-  researchChat: ResearchChatController;
   demoChat: ResearchChatController;
 };
 
@@ -29,19 +28,13 @@ export function AppSettingsSheet({
   mode,
   onModeChange,
   sourcePolicyMenuProps,
-  researchChat,
   demoChat,
 }: AppSettingsSheetProps) {
   const [Subview, setSubview] = useState<"main" | "advanced">("main");
   const [policyOpen, setPolicyOpen] = useState(false);
-  /** When workspace is not Research/Demo, choose which chat session to configure. */
-  const [researchTarget, setResearchTarget] = useState<"research" | "demo">("research");
+  const [clearing, setClearing] = useState(false);
   const titleId = useId();
-
-  useEffect(() => {
-    if (mode === "research") setResearchTarget("research");
-    if (mode === "demo") setResearchTarget("demo");
-  }, [mode]);
+  const clearingRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -58,9 +51,6 @@ export function AppSettingsSheet({
   useEffect(() => {
     if (open) setSubview("main");
   }, [open]);
-
-  const chatForAdvanced: ResearchChatController =
-    mode === "research" ? researchChat : mode === "demo" ? demoChat : researchTarget === "research" ? researchChat : demoChat;
 
   const showFloatingTrigger = true;
 
@@ -142,8 +132,7 @@ export function AppSettingsSheet({
                       role="group"
                       aria-label="UI mode"
                     >
-                      {modeBtn("sandbox2", "Sandbox2")}
-                      {modeBtn("research", "Research")}
+                      {modeBtn("sandbox", "Sandbox")}
                       {modeBtn("demo", "Demo")}
                     </div>
                   </section>
@@ -187,7 +176,34 @@ export function AppSettingsSheet({
                       <ChevronRight className="size-4 shrink-0 text-zinc-400" aria-hidden />
                     </button>
                     <p className="text-[11px] leading-relaxed text-zinc-500">
-                      Pipeline overrides and JSON seeds — same payload as the Research and Demo chat APIs.
+                      Pipeline overrides and JSON seeds — same payload as the Demo chat API.
+                    </p>
+                  </section>
+
+                  <section className="space-y-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">History</h3>
+                    <button
+                      type="button"
+                      disabled={clearing}
+                      className="flex w-full items-center justify-between gap-3 rounded-xl border border-red-100 bg-white px-3 py-3 text-left text-sm font-medium text-red-600 shadow-sm transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={async () => {
+                        if (clearingRef.current) return;
+                        clearingRef.current = true;
+                        setClearing(true);
+                        await demoChat.clearAllSessions();
+                        setClearing(false);
+                        clearingRef.current = false;
+                      }}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="flex size-9 items-center justify-center rounded-lg bg-red-50">
+                          <RotateCcw className={cn("size-4 text-red-500", clearing && "animate-spin")} aria-hidden />
+                        </span>
+                        <span>{clearing ? "Clearing…" : "Clear all chat history"}</span>
+                      </span>
+                    </button>
+                    <p className="text-[11px] leading-relaxed text-zinc-500">
+                      Deletes all sessions and resets to session 0. Cannot be undone.
                     </p>
                   </section>
                 </div>
@@ -207,44 +223,11 @@ export function AppSettingsSheet({
                     <h2 id={titleId} className="text-sm font-semibold text-zinc-900">
                       Advanced settings
                     </h2>
-                    <p className="text-[11px] text-zinc-500">Research &amp; Demo chat API payload</p>
+                    <p className="text-[11px] text-zinc-500">Demo chat API payload</p>
                   </div>
                 </header>
                 <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
-                  {mode !== "research" && mode !== "demo" ? (
-                    <div className="mb-4">
-                      <p className="mb-2 text-xs font-medium text-zinc-700">Configure session</p>
-                      <div className="flex gap-0.5 rounded-lg border border-zinc-200 bg-zinc-50/80 p-0.5" role="group">
-                        <button
-                          type="button"
-                          className={
-                            researchTarget === "research"
-                              ? "flex-1 rounded-md bg-white px-2 py-1.5 text-xs font-semibold text-zinc-900 shadow-sm"
-                              : "flex-1 rounded-md px-2 py-1.5 text-xs font-medium text-zinc-600 hover:bg-white/70"
-                          }
-                          onClick={() => setResearchTarget("research")}
-                        >
-                          Research tab
-                        </button>
-                        <button
-                          type="button"
-                          className={
-                            researchTarget === "demo"
-                              ? "flex-1 rounded-md bg-white px-2 py-1.5 text-xs font-semibold text-zinc-900 shadow-sm"
-                              : "flex-1 rounded-md px-2 py-1.5 text-xs font-medium text-zinc-600 hover:bg-white/70"
-                          }
-                          onClick={() => setResearchTarget("demo")}
-                        >
-                          Demo tab
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="mb-4 rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
-                      Editing <span className="font-semibold text-zinc-800">{mode}</span> chat session.
-                    </p>
-                  )}
-                  <ResearchAdvancedSettingsForm chat={chatForAdvanced} />
+                  <ResearchAdvancedSettingsForm chat={demoChat} />
                 </div>
               </>
             )}

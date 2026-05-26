@@ -226,6 +226,7 @@ async function runWithConcurrencyLimit<T>(
   fns: (() => Promise<T>)[],
   limit: number,
   staggerMs: number,
+  onItemComplete?: (result: T) => Promise<void>,
 ): Promise<T[]> {
   const results: T[] = new Array(fns.length);
   const queue = fns.map((fn, i) => ({ fn, i }));
@@ -239,6 +240,9 @@ async function runWithConcurrencyLimit<T>(
         await new Promise((r) => setTimeout(r, staggerMs));
       }
       results[item.i] = await item.fn();
+      if (onItemComplete) {
+        await onItemComplete(results[item.i]!);
+      }
     }
   }
 
@@ -257,6 +261,8 @@ export async function runWorkersParallel(input: {
   max_concurrent?: number;
   stagger_ms?: number;
   search_source_policy?: ParallelSourcePolicy | null;
+  /** Called immediately after each worker completes — used for live session storage writes. */
+  onWorkerComplete?: (result: WorkerOutput) => Promise<void>;
 }): Promise<WorkerOutput[]> {
   const {
     tasks,
@@ -265,6 +271,7 @@ export async function runWorkersParallel(input: {
     max_concurrent,
     stagger_ms,
     search_source_policy,
+    onWorkerComplete,
     ...common
   } = input;
   const concurrency = max_concurrent ?? MAX_CONCURRENT_WORKERS;
@@ -282,6 +289,7 @@ export async function runWorkersParallel(input: {
       user_preferences_summary: common.user_preferences_summary,
       search_source_policy,
     });
+    if (onWorkerComplete) await onWorkerComplete(profileResult);
 
     const profileContext = [
       `Company/subject profile from initial research:`,
@@ -302,7 +310,7 @@ export async function runWorkersParallel(input: {
         search_source_policy,
       }),
     );
-    const remainingResults = await runWithConcurrencyLimit(fns, concurrency, stagger);
+    const remainingResults = await runWithConcurrencyLimit(fns, concurrency, stagger, onWorkerComplete);
 
     return [profileResult, ...remainingResults];
   }
@@ -316,5 +324,5 @@ export async function runWorkersParallel(input: {
       search_source_policy,
     }),
   );
-  return runWithConcurrencyLimit(fns, concurrency, stagger);
+  return runWithConcurrencyLimit(fns, concurrency, stagger, onWorkerComplete);
 }

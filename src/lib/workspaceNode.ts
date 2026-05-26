@@ -3,19 +3,73 @@ import path from "node:path";
 
 const WORKSPACE_DIR = path.join(process.cwd(), "workspace");
 
+// ---------------------------------------------------------------------------
+// Top-level workspace directories
+// ---------------------------------------------------------------------------
+
+/** Global memory shared across all sessions. */
+export const WORKSPACE_GLOBAL_DIR = path.join(WORKSPACE_DIR, "global");
+
+/** All session folders live here: session/session0/, session/session1/, … */
+export const WORKSPACE_SESSION_DIR = path.join(WORKSPACE_DIR, "session");
+
 /**
- * Research tab / multi-turn: turn blocks under `"1"`, `"2"`, … with `question` + `user-output`
- * (summary, document, `agent7_iter*`, `agent36_<set>_iter*` per parallel batch).
+ * Tracks which session is currently active.
+ * Format: `{ "session_id": 0 }`
+ * Defaults to session 0 when absent.
+ */
+export const SESSION_POINTER_FILE = path.join(WORKSPACE_DIR, "session-pointer.json");
+
+// ---------------------------------------------------------------------------
+// Per-session path helpers
+// ---------------------------------------------------------------------------
+
+/** Root folder for one session, e.g. `workspace/session/session0/`. */
+export function getSessionDir(sessionId: number): string {
+  return path.join(WORKSPACE_SESSION_DIR, `session${sessionId}`);
+}
+
+/**
+ * Chat memory JSON for one session — same structure as the old flat `chat-memory.json`
+ * but scoped to a single session folder.
+ * e.g. `workspace/session/session0/chat-memory.json`
+ */
+export function getSessionChatHistoryFile(sessionId: number): string {
+  return path.join(getSessionDir(sessionId), "chat-memory.json");
+}
+
+/**
+ * Read `session-pointer.json` to get the active session id.
+ * Returns 0 (session0) when the file does not exist yet.
+ */
+export async function getCurrentSessionId(): Promise<number> {
+  try {
+    const raw = await readWorkspaceText(SESSION_POINTER_FILE);
+    if (!raw.trim()) return 0;
+    const p = JSON.parse(raw) as { session_id?: number };
+    return typeof p.session_id === "number" ? Math.max(0, p.session_id) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Legacy / compatibility paths (kept while old readers still reference them)
+// ---------------------------------------------------------------------------
+
+/**
+ * @deprecated Use `getSessionChatHistoryFile(sessionId)` instead.
+ * Kept for compatibility with routes that have not yet been migrated.
  */
 export const CHAT_MEMORY_FILE = path.join(WORKSPACE_DIR, "chat-memory.json");
-/** One markdown file per dimension under `workspace/chat-dimension-memory/` — derived from `chat-memory.json`. */
-export const CHAT_DIMENSION_MEMORY_DIR = path.join(WORKSPACE_DIR, "chat-dimension-memory");
+
 export const USER_OUTPUT_FILE = path.join(WORKSPACE_DIR, "user-output.md");
 /**
- * Authoritative domain manual JSON for Agent 7 (orchestrator context) and optional Agent 3/6 (when
- * `research_task.follow_domain_manual` is not false). Edit on disk; APIs do not accept overrides.
+ * Authoritative domain manual JSON for the orchestrator and workers.
+ * Lives under `workspace/global/` — shared across all sessions.
+ * Edit on disk; APIs do not accept overrides.
  */
-export const DOMAIN_MANUAL_FILE = path.join(WORKSPACE_DIR, "domain-manuals", "domain-manual.json");
+export const DOMAIN_MANUAL_FILE = path.join(WORKSPACE_GLOBAL_DIR, "domain-manuals", "domain-manual.json");
 
 /** Orchestrator phases (plan / review / deliver): `workspace/orchestrator-state/system-prompt.md`. */
 export const ORCHESTRATOR_SYSTEM_PROMPT_FILE = path.join(

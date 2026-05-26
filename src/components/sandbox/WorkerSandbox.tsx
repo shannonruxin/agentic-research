@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { CopyOutputButton } from "@/components/CopyOutputButton";
-import { WORKER_CHEATSHEET } from "@/lib/sandbox2SpecCheatsheet";
+import { CopyOutputButton } from "@/components/sandbox/CopyOutputButton";
+import { WORKER_CHEATSHEET } from "@/lib/sandbox/specCheatsheet";
 import type { WorkerOutput } from "@/lib/types";
 
 const SAMPLE_TASK = JSON.stringify(
@@ -62,7 +62,7 @@ export function WorkerSandbox({ pipelineBusy = false }: WorkerSandboxProps) {
 
     setLoading(true);
     try {
-      const res = await fetch("/api/sandbox2-worker", {
+      const res = await fetch("/api/sandbox/worker", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

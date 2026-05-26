@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { CopyOutputButton } from "@/components/CopyOutputButton";
-import { ORCHESTRATOR_CHEATSHEET } from "@/lib/sandbox2SpecCheatsheet";
+import { CopyOutputButton } from "@/components/sandbox/CopyOutputButton";
+import { ORCHESTRATOR_CHEATSHEET } from "@/lib/sandbox/specCheatsheet";
 
 type Phase = "plan" | "review" | "deliver";
 
@@ -80,7 +80,7 @@ export function OrchestratorSandbox({ pipelineBusy = false }: OrchestratorSandbo
         if (!Number.isNaN(rc)) body.rounds_completed = rc;
       }
 
-      const res = await fetch("/api/sandbox2-orchestrator", {
+      const res = await fetch("/api/sandbox/orchestrator", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

@@ -90,7 +90,7 @@ Flow
 5. Orchestrator Review → analyze evidence, find contradictions/connections, decide: dig_deeper or deliver
 6. If dig_deeper → targeted investigative tasks referencing specific findings → back to Workers (round 2+)
 7. Orchestrator Deliver → final investment research document with thesis
-8. Persist to chat-dimension-memory/*.md + chat-memory.json + user-output.md
+8. Persist to session/sessionN/chat-history.json + session/sessionN/{dimension}.json + user-output.md
 9. Preferences Agent (async, if preference signal detected)
 
 Configurable via pipeline_config:

@@ -11,7 +11,7 @@ export type ResearchUserOutput = {
  * `workspace/chat-memory.json` (Research tab): each turn is a string key "1" | "2" | …
  * with `question` and nested `user-output` (summary, document, plus per-step fields written
  * by `runParallelPipeline`).
- * Per-dimension markdown mirrors live under `workspace/chat-dimension-memory/` (derived from this JSON).
+ * Per-dimension worker findings are stored live under `workspace/session/sessionN/{dimension}.json`.
  */
 export function nextResearchTurnKey(doc: Record<string, unknown>): string {
   let m = 0;

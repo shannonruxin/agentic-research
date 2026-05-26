@@ -4,7 +4,6 @@ import {
   orchestratorReview,
   orchestratorDeliver,
 } from "@/lib/agents/orchestrator";
-import { writeChatMemoryJsonAndRebuildDimensions } from "@/lib/dimensionMemoryMarkdown";
 import { runWorkersParallel } from "@/lib/agents/researchWorker";
 import {
   runPreferencesAgent,
@@ -12,15 +11,17 @@ import {
   extractApplicablePreferences,
 } from "@/lib/agents/preferencesAgent";
 import {
-  CHAT_MEMORY_FILE,
   DOMAIN_MANUAL_FILE,
   USER_OUTPUT_FILE,
   loadWorkspaceDomainManualOrDefault,
   readWorkspaceText,
   writeWorkspaceText,
+  getCurrentSessionId,
+  getSessionChatHistoryFile,
 } from "@/lib/workspaceNode";
-import { buildCompactResearchMemoryForAgent7Prompt, mergeResearchTurn, nextResearchTurnKey } from "@/lib/researchSessionMemory";
+import { buildCompactResearchMemoryForAgent7Prompt, nextResearchTurnKey } from "@/lib/researchSessionMemory";
 import { parseChatMemoryFile } from "@/lib/chatMemoryJson";
+import { appendWorkerFinding, appendChatHistoryTurn } from "@/lib/sessionStorage";
 import { readUserPreferences } from "@/lib/preferenceUtils";
 import type {
   Agent7Dimension,
@@ -63,19 +64,10 @@ function resolveConfig(partial?: Partial<PipelineConfig>): PipelineConfig {
   return { ...DEFAULT_PIPELINE_CONFIG, ...partial };
 }
 
-async function persistParallelTurn(input: {
-  question: string;
-  documentMarkdown: string;
-  findingsSummary: { key: string; value: unknown };
-  steps: ParallelPipelineStep[];
-  roundsCompleted: number;
-}): Promise<void> {
-  const raw = await readWorkspaceText(CHAT_MEMORY_FILE);
-  const doc = parseChatMemoryFile(raw);
-  const turnKey = nextResearchTurnKey(doc);
-
+/** Convert accumulated pipeline steps to the on-disk trace format. */
+function buildPipelineTrace(steps: ParallelPipelineStep[]): Record<string, unknown>[] {
   const pipeline_trace: Record<string, unknown>[] = [];
-  for (const step of input.steps) {
+  for (const step of steps) {
     switch (step.kind) {
       case "intent":
         pipeline_trace.push({
@@ -165,19 +157,46 @@ async function persistParallelTurn(input: {
         break;
     }
   }
+  return pipeline_trace;
+}
 
+async function persistParallelTurn(input: {
+  sessionId: number;
+  turnKey: string;
+  question: string;
+  documentMarkdown: string;
+  findingsSummary: { key: string; value: unknown };
+  steps: ParallelPipelineStep[];
+  roundsCompleted: number;
+}): Promise<void> {
+  const { sessionId, turnKey } = input;
   const userOutput: Record<string, unknown> = {
     summary: { key: input.findingsSummary.key, value: input.findingsSummary.value },
     document: input.documentMarkdown,
     rounds_completed: input.roundsCompleted,
-    pipeline_trace,
+    pipeline_trace: buildPipelineTrace(input.steps),
   };
-
-  const merged = mergeResearchTurn(raw, turnKey, {
+  await appendChatHistoryTurn(sessionId, turnKey, {
     question: input.question,
     "user-output": userOutput as import("@/lib/researchSessionMemory").ResearchUserOutput,
   });
-  await writeChatMemoryJsonAndRebuildDimensions(merged, turnKey);
+}
+
+/** Write a partial turn checkpoint — no document yet, but pipeline reasoning is preserved on disk. */
+async function checkpointTurn(
+  sessionId: number,
+  turnKey: string,
+  question: string,
+  steps: ParallelPipelineStep[],
+): Promise<void> {
+  await appendChatHistoryTurn(sessionId, turnKey, {
+    question,
+    "user-output": {
+      summary: "in_progress",
+      document: "",
+      pipeline_trace: buildPipelineTrace(steps),
+    } as import("@/lib/researchSessionMemory").ResearchUserOutput,
+  }).catch(() => {});
 }
 
 export async function runParallelPipeline(
@@ -190,7 +209,13 @@ export async function runParallelPipeline(
     input.source_policy_request ?? undefined,
   );
 
-  const chatMemoryRaw = await readWorkspaceText(CHAT_MEMORY_FILE);
+  // Resolve active session and turn key once at the top — used for all storage writes.
+  const sessionId = await getCurrentSessionId();
+  const chatHistoryFile = getSessionChatHistoryFile(sessionId);
+  const chatMemoryRaw = await readWorkspaceText(chatHistoryFile);
+  const chatMemoryDoc = parseChatMemoryFile(chatMemoryRaw);
+  const currentTurnKey = nextResearchTurnKey(chatMemoryDoc);
+
   const conversationContext = buildCompactResearchMemoryForAgent7Prompt(chatMemoryRaw, {
     maxTurnsInFullDetail: 2,
     minOlderTurnsForSummaryOnly: 1,
@@ -212,14 +237,19 @@ export async function runParallelPipeline(
 
   // --- Chat fast paths ---
   if (intent.intent === "chat" && !intent.has_preference_signal) {
+    const reply = intent.chat_reply ?? "Hello! What would you like me to research?";
+    await appendChatHistoryTurn(sessionId, currentTurnKey, {
+      question: input.objective,
+      "user-output": { summary: "chat_reply", document: reply, intent: "chat" } as import("@/lib/researchSessionMemory").ResearchUserOutput,
+    }).catch(() => {});
     return {
       success: true,
       stopped: "chat_reply",
-      document_markdown: intent.chat_reply ?? "Hello! What would you like me to research?",
+      document_markdown: reply,
       key_findings: input.key_findings ?? {},
       dimensions: input.dimensions ?? [],
       known_gaps: input.known_gaps_seed ?? [],
-      chat_memory_path: CHAT_MEMORY_FILE,
+      chat_memory_path: chatHistoryFile,
       user_output_path: USER_OUTPUT_FILE,
       rounds_completed: 0,
       steps,
@@ -241,14 +271,19 @@ export async function runParallelPipeline(
         ? [...sessionPrefs, prefResult.session_preference]
         : sessionPrefs;
 
+      const reply = intent.chat_reply ?? "Got it, I'll remember that.";
+      await appendChatHistoryTurn(sessionId, currentTurnKey, {
+        question: input.objective,
+        "user-output": { summary: "chat_reply", document: reply, intent: "chat", preference: prefResult.notification } as import("@/lib/researchSessionMemory").ResearchUserOutput,
+      }).catch(() => {});
       return {
         success: true,
         stopped: "chat_reply",
-        document_markdown: intent.chat_reply ?? "Got it, I'll remember that.",
+        document_markdown: reply,
         key_findings: input.key_findings ?? {},
         dimensions: input.dimensions ?? [],
         known_gaps: input.known_gaps_seed ?? [],
-        chat_memory_path: CHAT_MEMORY_FILE,
+        chat_memory_path: chatHistoryFile,
         user_output_path: USER_OUTPUT_FILE,
         preference_notification: prefResult.notification,
         session_preferences: newSessionPrefs.length > 0 ? newSessionPrefs : undefined,
@@ -256,14 +291,19 @@ export async function runParallelPipeline(
         steps,
       };
     } catch {
+      const reply = intent.chat_reply ?? "Got it!";
+      await appendChatHistoryTurn(sessionId, currentTurnKey, {
+        question: input.objective,
+        "user-output": { summary: "chat_reply", document: reply, intent: "chat" } as import("@/lib/researchSessionMemory").ResearchUserOutput,
+      }).catch(() => {});
       return {
         success: true,
         stopped: "chat_reply",
-        document_markdown: intent.chat_reply ?? "Got it!",
+        document_markdown: reply,
         key_findings: input.key_findings ?? {},
         dimensions: input.dimensions ?? [],
         known_gaps: input.known_gaps_seed ?? [],
-        chat_memory_path: CHAT_MEMORY_FILE,
+        chat_memory_path: chatHistoryFile,
         user_output_path: USER_OUTPUT_FILE,
         rounds_completed: 0,
         steps,
@@ -292,6 +332,7 @@ export async function runParallelPipeline(
     return { success: false, error: `[orchestrator_plan] ${msg}`, steps };
   }
   steps.push({ kind: "orchestrator_plan", result: planResult });
+  void checkpointTurn(sessionId, currentTurnKey, input.objective, steps);
 
   const maxRounds = Math.min(config.max_rounds, 5);
   let allWorkerResults: WorkerOutput[] = [];
@@ -301,6 +342,9 @@ export async function runParallelPipeline(
 
   while (true) {
     round++;
+
+    // Capture round in closure for the onWorkerComplete callback.
+    const currentRound = round;
 
     let roundWorkerResults: WorkerOutput[];
     try {
@@ -314,6 +358,15 @@ export async function runParallelPipeline(
         max_concurrent: config.max_workers_concurrent,
         stagger_ms: config.worker_stagger_ms,
         search_source_policy: searchSourcePolicy,
+        // Live write: fires immediately when each worker finishes, before the next starts.
+        onWorkerComplete: async (result) => {
+          await appendWorkerFinding(
+            sessionId,
+            result,
+            parseInt(currentTurnKey, 10),
+            currentRound,
+          );
+        },
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -346,6 +399,7 @@ export async function runParallelPipeline(
     }
     steps.push({ kind: "orchestrator_review", round, result: review });
     lastReview = review;
+    void checkpointTurn(sessionId, currentTurnKey, input.objective, steps);
 
     if (review.decision.action === "deliver" || round >= maxRounds) {
       break;
@@ -375,6 +429,8 @@ export async function runParallelPipeline(
 
   await writeWorkspaceText(USER_OUTPUT_FILE, delivered.user_facing_document);
   await persistParallelTurn({
+    sessionId,
+    turnKey: currentTurnKey,
     question: input.objective,
     documentMarkdown: delivered.user_facing_document,
     findingsSummary: delivered.findings_summary,
@@ -414,7 +470,7 @@ export async function runParallelPipeline(
     key_findings: delivered.key_findings,
     dimensions: delivered.dimensions,
     known_gaps: delivered.known_gaps,
-    chat_memory_path: CHAT_MEMORY_FILE,
+    chat_memory_path: chatHistoryFile,
     user_output_path: USER_OUTPUT_FILE,
     preference_notification: prefNotification,
     session_preferences: newSessionPrefs.length > 0 ? newSessionPrefs : undefined,

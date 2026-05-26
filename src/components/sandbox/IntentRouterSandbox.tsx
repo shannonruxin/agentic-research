@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { CopyOutputButton } from "@/components/CopyOutputButton";
-import { INTENT_ROUTER_CHEATSHEET } from "@/lib/sandbox2SpecCheatsheet";
+import { CopyOutputButton } from "@/components/sandbox/CopyOutputButton";
+import { INTENT_ROUTER_CHEATSHEET } from "@/lib/sandbox/specCheatsheet";
 import type { IntentClassification } from "@/lib/types";
 
 export type IntentRouterSandboxProps = {
@@ -24,7 +24,7 @@ export function IntentRouterSandbox({ pipelineBusy = false }: IntentRouterSandbo
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch("/api/sandbox2-intent", {
+      const res = await fetch("/api/sandbox/intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

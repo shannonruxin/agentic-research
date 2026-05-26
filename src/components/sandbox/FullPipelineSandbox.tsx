@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { CopyOutputButton } from "@/components/CopyOutputButton";
-import { FULL_PIPELINE_CHEATSHEET } from "@/lib/sandbox2SpecCheatsheet";
+import { CopyOutputButton } from "@/components/sandbox/CopyOutputButton";
+import { FULL_PIPELINE_CHEATSHEET } from "@/lib/sandbox/specCheatsheet";
 import type { ParallelPipelineResult, ParallelPipelineStep } from "@/lib/types";
 
 type SuccessResult = Extract<ParallelPipelineResult, { success: true }>;
@@ -86,7 +86,7 @@ export function FullPipelineSandbox({ pipelineBusy = false, onBusyChange }: Full
 
     setBusy(true);
     try {
-      const res = await fetch("/api/sandbox2-pipeline", {
+      const res = await fetch("/api/sandbox/pipeline", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -116,8 +116,7 @@ export function FullPipelineSandbox({ pipelineBusy = false, onBusyChange }: Full
       </h2>
       <p className="text-xs text-zinc-500">
         End-to-end: Intent → Orchestrator Plan → Workers → Review loop → Deliver. Persists to{" "}
-        <code className="rounded bg-zinc-100 px-1 text-[11px]">chat-dimension-memory/</code>,{" "}
-        <code className="rounded bg-zinc-100 px-1 text-[11px]">chat-memory.json</code>, and{" "}
+        <code className="rounded bg-zinc-100 px-1 text-[11px]">session/session0/</code> and{" "}
         <code className="rounded bg-zinc-100 px-1 text-[11px]">user-output.md</code>.
       </p>
 

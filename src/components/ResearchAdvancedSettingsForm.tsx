@@ -39,7 +39,7 @@ export function ResearchAdvancedSettingsForm({ chat }: { chat: ResearchChatContr
     <div className="space-y-2 text-xs">
       <p className="text-zinc-600">
         Domain context is read from{" "}
-        <code className="rounded bg-zinc-100 px-0.5">workspace/domain-manuals/domain-manual.json</code>. User
+        <code className="rounded bg-zinc-100 px-0.5">workspace/global/domain-manuals/domain-manual.json</code>. User
         preferences are learned automatically and stored there too.
       </p>
       <label className="block font-medium text-zinc-800">subject_scope (optional)</label>
