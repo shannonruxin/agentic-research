@@ -1,7 +1,19 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { plannerTaskSchema } from "@/lib/agents/planner";
 import { runResearchWorker } from "@/lib/agents/researchWorker";
+
+const plannerTaskSchema = z.object({
+  task_id: z.string(),
+  dimension: z.string(),
+  factor: z.string(),
+  goal: z.string(),
+  context: z.record(z.string(), z.unknown()).optional(),
+  search_guidance: z.array(z.string()),
+  variables_to_find: z.array(z.string()).optional(),
+  extraction_focus: z.string().optional(),
+  priority: z.enum(["high", "medium", "low"]),
+  follow_domain_manual: z.boolean().optional(),
+});
 
 const bodySchema = z.object({
   task: plannerTaskSchema,

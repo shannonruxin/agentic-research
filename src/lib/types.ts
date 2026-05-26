@@ -14,12 +14,9 @@ export interface RetrievedPage {
 /** URL (normalized) → page; stable JSON key = normalized URL string */
 export type ExtractBundle = Record<string, RetrievedPage>;
 
-// --- Agent 7 — orchestrator / judge ---
-
-export interface Agent7Confidence {
-  level: "low" | "medium" | "high";
-  rationale?: string;
-}
+// ---------------------------------------------------------------------------
+// Shared dimension / gap types (used by orchestrator pipeline)
+// ---------------------------------------------------------------------------
 
 /** Sub-topic lens for the objective (e.g. market size, competitors, technology). */
 export interface Agent7Dimension {
@@ -35,73 +32,20 @@ export interface Agent7Dimension {
 
 /** Missing info / evidence before a solid answer — often per-dimension; omit dimension for objective-level scope gaps. */
 export interface Agent7KnownGapGroup {
-  /** When set, must be a **dimension id** (same as dimensions[].id), or legacy label text coerced to id. */
+  /** When set, must be a **dimension id** (same as dimensions[].id). */
   dimension?: string;
   gaps: string[];
 }
 
-export type Agent7Assignee = "agent3_agent6" | "agent4_agent5" | "agent8";
+// ---------------------------------------------------------------------------
+// Worker extracted data
+// ---------------------------------------------------------------------------
 
-/** Full research task handed to Agent 3+6 (design-phase2 task schema). */
-export interface Agent7ResearchTask {
-  task_id: string;
-  dimension: string;
-  factor: string;
-  goal: string;
-  context?: Record<string, unknown>;
-  method_instructions?: string[];
-  variables_to_find?: string[];
-  calculation_logic?: string;
-  search_guidance?: string[];
-  validation_criteria?: string[];
-  adaptation_signals?: string[];
-  fallback_methods?: string[];
-  success_criteria?: string[];
-  priority: "high" | "medium" | "low";
-  expected_output_format?: string[];
-  /**
-   * Set by Agent 7 per task. When `false`, Agent 3/6 do not load `workspace/domain-manuals/domain-manual.json`.
-   * When omitted or `true`, they use that file. Use `false` when the task is unrelated to the manual.
-   */
-  follow_domain_manual?: boolean;
-}
-
-export interface Agent7Assignment {
-  assignee: Agent7Assignee;
-  /** Why this assignee / how it fits the plan. */
-  summary?: string;
-  research_task?: Agent7ResearchTask;
-  /** Short brief for verbatim extract+crop when assignee is agent4_agent5. */
-  verbatim_brief?: string;
-  /** Instructions for Agent 8 memory merge when assignee is agent8. */
-  memory_directive?: string;
-}
-
-/** Result of one Agent 7 orchestration step (may be iterated with prior key_findings). */
-export interface Agent7OrchestrateResult {
-  objective_understanding: string;
-  /** Sub-considerations Agent 7 uses to structure the topic. */
-  dimensions: Agent7Dimension[];
-  key_findings: Record<string, unknown>;
-  /** Grouped known gaps — includes first-turn “need more info” under dimensions or objective scope. */
-  known_gaps: Agent7KnownGapGroup[];
-  confidence: Agent7Confidence;
-  /** Orchestrator reasoning trace for review. */
-  train_of_thought: string;
-  /** Concrete handoffs: who does what next (dispatch not executed in sandbox). */
-  assignments: Agent7Assignment[];
-}
-
-// --- Phase 2 — Agent 6 / Agent 3 research task execution (design-phase2) ---
-
-/** Input to Phase 2 research-task runners; same shape as **`assignments[].research_task`**. */
-export type ResearchTaskInput = Agent7ResearchTask;
-
-/** Signal levels for extraction quality hints (Agent 6 Phase 2). */
+/** Signal levels for extraction quality hints. */
 export type Agent6ExtractSignalLevel = "high" | "medium" | "low";
 
 /**
- * One structured extraction row from web search (Agent 6 Phase 2).
+ * One structured extraction row from web search (research worker).
  * Atomic bullet-like strings; avoid single-sentence compression.
  */
 export interface ExtractedKeyDatum {
@@ -122,182 +66,6 @@ export interface ExtractedKeyDatum {
   status: "found" | "partial" | "not_found";
   /** Must match a returned hit URL when present (enforced server-side when possible). */
   source_url?: string;
-}
-
-/** Structured result of one Agent 6 Phase 2 pass over a **`research_task`**. */
-export interface Agent6ResearchRunResult {
-  queries_used: string[];
-  source_urls: string[];
-  extracted_key_data: ExtractedKeyDatum[];
-  parallel_search_id?: string | null;
-}
-
-export interface Agent3TaskAssumption {
-  name: string;
-  type: "data_backed" | "benchmark_based" | "speculative";
-  justification?: string;
-  source?: string;
-  risk_level: "low" | "medium" | "high";
-}
-
-/** Task-level confidence breakdown (design-phase2 § Confidence — Agent 3). */
-export interface Agent3TaskConfidence {
-  score: number;
-  breakdown: {
-    data_quality: number;
-    source_agreement: number;
-    assumption_strength: number;
-    method_fit: number;
-    coverage_completeness: number;
-  };
-  reasoning: string[];
-}
-
-export interface Agent3TaskSourceRow {
-  url: string;
-  relevance: string;
-  data_noted: string;
-}
-
-/** Progress / stagnation signals across Agent 3 ↔ Agent 6 iterations. */
-export interface Agent3ProgressMetrics {
-  iterations_so_far: number;
-  /** New signals or concepts vs all prior iterations (not raw entity count). */
-  new_info_count: number;
-  /** Share of this iteration repeating the immediately previous iteration. */
-  overlap_rate: number;
-  /** Share of this iteration repeating anything seen in any prior iteration. */
-  cumulative_overlap_rate: number;
-  /** Share of sources in this iteration not seen before. */
-  source_novelty: number;
-  trend: "increasing" | "stable" | "declining";
-}
-
-/** Entity bookkeeping for query strategy (Agent 3 Phase 2). */
-export interface Agent3EntityTracking {
-  total_entities: number;
-  new_entities: string[];
-  repeated_entities: string[];
-  high_relevance_entities: string[];
-  high_rabbithole_entities: string[];
-}
-
-/** Decision block for research_log / unified Agent 3 (mirrors research_log[].decision). */
-export interface Agent3ResearchDecision {
-  needs_further_search: boolean;
-  reason: string;
-  suggested_direction?: string;
-  suggested_queries?: string[];
-}
-
-/** Per-iteration memory for Agent 3 Phase 2 (primary context for re-planning). */
-export interface Agent3ResearchLogEntry {
-  iteration: number;
-  queries: string[];
-  a6_raw_findings: Pick<Agent6ResearchRunResult, "queries_used" | "source_urls" | "extracted_key_data">;
-  scan: {
-    sources_and_data: Agent3TaskSourceRow[];
-    observations: string[];
-    emerging_patterns: string[];
-  };
-  analysis: {
-    analysis_points: string[];
-    task_gaps: string[];
-    assumptions: Agent3TaskAssumption[];
-    confidence: Agent3TaskConfidence;
-  };
-  progress: Agent3ProgressMetrics;
-  decision: Agent3ResearchDecision;
-  insight: string;
-}
-
-/** Agent 3 Phase 2 — one research task conclusion for Agent 7. */
-export interface Agent3TaskResult {
-  sources_and_data: Agent3TaskSourceRow[];
-  analysis_points: string[];
-  summary: string;
-  task_gaps: string[];
-  assumptions: Agent3TaskAssumption[];
-  confidence: Agent3TaskConfidence;
-  /** When true, orchestration may schedule another plan → Agent 6 → review round. */
-  needs_further_search?: boolean;
-  suggested_queries?: string[];
-  progress_metrics?: Agent3ProgressMetrics;
-  entity_tracking?: Agent3EntityTracking;
-  /**
-   * Scan layer: observations + emerging_patterns (review pass). `sources_and_data` stays top-level;
-   * when assembling research_log.scan, copy sources_and_data into the log row.
-   */
-  scan?: {
-    observations: string[];
-    emerging_patterns: string[];
-  };
-  /** How understanding of the domain changed this iteration (research_log.insight). */
-  insight?: string;
-  /** Full decision mirror for orchestration / research_log.decision. */
-  decision?: Agent3ResearchDecision;
-}
-
-/**
- * Unified Agent 3 Phase 2 response: next Agent 6 assignment (flat plan fields) plus
- * synthesis / review fields after **`agent6_result`** is available.
- */
-export interface Agent3Phase2Response extends Agent3TaskResult {
-  plan_summary: string;
-  search_objective: string;
-  search_queries: string[];
-  extraction_notes?: string;
-  open_questions?: string[];
-}
-
-/**
- * Agent 3 → Agent 6 handoff for one search+extract pass (Phase 2).
- * Produced by Agent 3 **plan** step before any web search.
- */
-export interface Agent6AssignmentFromAgent3 {
-  /** Natural-language objective for Parallel beta.search. */
-  search_objective: string;
-  /** Keyword / query strings for beta.search. */
-  search_queries: string[];
-  /** Optional notes for the extraction LLM (variables emphasis, hygiene). */
-  extraction_notes?: string;
-}
-
-/** Agent 3 Phase 2 — planning step after Agent 7 assigns a research_task. */
-export interface Agent3ResearchPlan {
-  plan_summary: string;
-  agent6_assignment: Agent6AssignmentFromAgent3;
-  open_questions?: string[];
-}
-
-/** Legacy prior-round shape (plan → Agent 6 → review); newest last. */
-export interface Agent36PriorRound {
-  agent3_plan: Agent3ResearchPlan;
-  agent6_result: Agent6ResearchRunResult;
-  agent3_review: Agent3TaskResult;
-}
-
-/** One full plan → search → review cycle inside the A3↔A6 loop. */
-export interface Agent36LoopIterationTrace {
-  agent3_plan: Agent3ResearchPlan;
-  agent6_result: Agent6ResearchRunResult;
-  agent3_review: Agent3TaskResult;
-}
-
-/** Loop API: final Agent 3 **review** plus traces (Agent 7 → A3 plan → A6 → A3 review, iterate). */
-export interface Agent36ResearchLoopResponse {
-  final_agent3_result: Agent3TaskResult;
-  /** One plan per iteration (before each Agent 6 run). */
-  agent3_plans: Agent3ResearchPlan[];
-  agent6_runs: Agent6ResearchRunResult[];
-  /** Ordered rounds: plan, then Agent 6 output, then review. */
-  iteration_trace: Agent36LoopIterationTrace[];
-  /** Cumulative research memory (newest last), echoed for orchestration / sandbox. */
-  research_log: Agent3ResearchLogEntry[];
-  iterations: number;
-  stopped_reason: "sufficient" | "max_iterations" | "min_confidence";
-  /** Echo: request `min_confidence` (0–1) when the client sent it. */
-  min_confidence_threshold?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -322,16 +90,6 @@ export interface PlannerResearchTask {
   extraction_focus?: string;
   priority: "high" | "medium" | "low";
   follow_domain_manual?: boolean;
-}
-
-export interface PlannerOutput {
-  objective_understanding: string;
-  dimensions: Agent7Dimension[];
-  known_gaps: Agent7KnownGapGroup[];
-  tasks: PlannerResearchTask[];
-  execution_strategy: "all_parallel" | "two_phase";
-  profile_task_id?: string;
-  reasoning: string;
 }
 
 export interface WorkerSourceRow {
@@ -360,17 +118,6 @@ export interface CoverageAssessment {
   dimension: string;
   score: number;
   reasoning: string;
-}
-
-export interface SynthesizerOutput {
-  user_facing_document: string;
-  key_findings: Record<string, unknown>;
-  dimensions: Agent7Dimension[];
-  known_gaps: Agent7KnownGapGroup[];
-  findings_summary: { key: string; value: unknown };
-  coverage_assessment: CoverageAssessment[];
-  dig_deeper: PlannerResearchTask[];
-  should_continue: boolean;
 }
 
 export type PreferenceScope = "session" | "conditional_global" | "global";

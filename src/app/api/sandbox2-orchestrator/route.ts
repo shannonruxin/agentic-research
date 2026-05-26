@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { orchestratorPlan, orchestratorReview, orchestratorDeliver } from "@/lib/agents/orchestrator";
-import { agent7DimensionSchema, knownGapGroupSchema } from "@/lib/agents/agent7Orchestrate";
+import { researchDimensionSchema, knownGapGroupSchema } from "@/lib/agents/dimensionSchemas";
 import { loadWorkspaceDomainManualOrDefault } from "@/lib/workspaceNode";
 import { readUserPreferences } from "@/lib/preferenceUtils";
 import { extractApplicablePreferences } from "@/lib/agents/preferencesAgent";
@@ -44,7 +44,7 @@ const orchestratorTaskSchema = z.object({
 const planOutputSchema = z.object({
   objective_understanding: z.string(),
   investment_thesis_draft: z.string(),
-  dimensions: z.array(agent7DimensionSchema),
+  dimensions: z.array(researchDimensionSchema),
   known_gaps: z.array(knownGapGroupSchema),
   tasks: z.array(orchestratorTaskSchema),
   execution_strategy: z.enum(["all_parallel", "two_phase"]),
@@ -62,7 +62,7 @@ const reviewOutputSchema = z.object({
   working_notes: z.string(),
   key_findings: z.record(z.string(), z.unknown()),
   coverage_assessment: z.array(coverageSchema),
-  dimensions: z.array(agent7DimensionSchema),
+  dimensions: z.array(researchDimensionSchema),
   known_gaps: z.array(knownGapGroupSchema),
   contradictions: z.array(z.string()),
   connections: z.array(z.string()),
@@ -80,7 +80,7 @@ const bodySchema = z.object({
   user_preferences_summary: z.string().optional(),
   research_hygiene: z.record(z.string(), z.unknown()).optional(),
   prior_key_findings: z.record(z.string(), z.unknown()).optional(),
-  prior_dimensions: z.array(agent7DimensionSchema).optional(),
+  prior_dimensions: z.array(researchDimensionSchema).optional(),
   prior_known_gaps: z.array(knownGapGroupSchema).optional(),
   plan: planOutputSchema.optional(),
   all_worker_results: z.array(workerOutputSchema).optional(),

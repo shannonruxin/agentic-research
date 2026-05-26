@@ -1,16 +1,4 @@
-import { extractSummary, toJsonSafe, formatChatMemoryJson, parseChatMemoryFile } from "@/lib/chatMemoryJson";
-
-/** Shapes of steps expected when building a Research `user-output` object (must match the orchestration loop). */
-type ResearchLogStep =
-  | { kind: "agent7"; result: unknown }
-  | {
-      kind: "agent36";
-      /** Orchestration “set” (outer round): 1, 2, 3, …; parallel 3/6 runs in the same round share the same set, with iter 1,2,3,… */
-      outer_index: number;
-      full_loop: Record<string, unknown>;
-      research_task?: import("@/lib/types").Agent7ResearchTask;
-    }
-  | { kind: "finalize"; reason: string; user_facing_document: string };
+import { extractSummary, formatChatMemoryJson, parseChatMemoryFile } from "@/lib/chatMemoryJson";
 
 export type ResearchUserOutput = {
   /** Rolling findings / synthesis for this turn. */
@@ -21,8 +9,8 @@ export type ResearchUserOutput = {
 
 /**
  * `workspace/chat-memory.json` (Research tab): each turn is a string key "1" | "2" | …
- * with `question` and nested `user-output` (summary, document, `agent7_iter*`, and
- * `agent36_<set>_iter<n>` where set is the outer round and n is 1,2,3… within a parallel batch).
+ * with `question` and nested `user-output` (summary, document, plus per-step fields written
+ * by `runParallelPipeline`).
  * Per-dimension markdown mirrors live under `workspace/chat-dimension-memory/` (derived from this JSON).
  */
 export function nextResearchTurnKey(doc: Record<string, unknown>): string {
@@ -31,42 +19,6 @@ export function nextResearchTurnKey(doc: Record<string, unknown>): string {
     if (/^\d+$/.test(k)) m = Math.max(m, parseInt(k, 10));
   }
   return String(m + 1);
-}
-
-export function buildResearchUserOutput(
-  steps: readonly ResearchLogStep[],
-  documentMarkdown: string,
-  lastFindingsSummary: { key: string; value: unknown } | null,
-): ResearchUserOutput {
-  let a7c = 0;
-  let a36Outer: number | null = null;
-  let a36PosInSet = 0;
-  const uo: ResearchUserOutput = {
-    summary: lastFindingsSummary
-      ? { key: lastFindingsSummary.key, value: lastFindingsSummary.value }
-      : { note: "no findings_summary on this run" },
-    document: documentMarkdown,
-  };
-  for (const s of steps) {
-    if (s.kind === "agent7") {
-      a7c++;
-      uo[`agent7_iter${a7c}`] = toJsonSafe(s.result);
-    } else if (s.kind === "agent36") {
-      if (a36Outer !== s.outer_index) {
-        a36Outer = s.outer_index;
-        a36PosInSet = 0;
-      }
-      a36PosInSet++;
-      const payload: Record<string, unknown> = { full_loop: s.full_loop };
-      if (s.research_task) {
-        payload.research_task = toJsonSafe(s.research_task);
-      }
-      uo[`agent36_${s.outer_index}_iter${a36PosInSet}`] = payload;
-    } else if (s.kind === "finalize") {
-      uo[`finalize_${s.reason}`] = { reason: s.reason, user_facing_document: s.user_facing_document };
-    }
-  }
-  return uo;
 }
 
 /**
@@ -160,7 +112,7 @@ function compactFullLoopForPrompt(loop: unknown): unknown {
 }
 
 /**
- * `assignments` can be large; keep task shapes needed for “what we already ran”.
+ * `assignments` can be large; keep task shapes needed for "what we already ran".
  */
 function compactAgent7ForPrompt(out: unknown): unknown {
   if (out === null || typeof out !== "object" || Array.isArray(out)) {

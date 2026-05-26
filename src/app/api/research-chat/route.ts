@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { agent7DimensionSchema } from "@/lib/agents/agent7Orchestrate";
+import { researchDimensionSchema } from "@/lib/agents/dimensionSchemas";
 import { runParallelPipeline } from "@/lib/agents/runParallelPipeline";
 import { PARALLEL_SOURCE_POLICY_MAX_DOMAINS } from "@/lib/parallelSourcePolicy";
 
@@ -33,7 +33,7 @@ const bodySchema = z.object({
   memory: jsonObjectSchema.optional(),
   known_gaps_seed: z.array(knownGapGroupBodySchema).optional(),
   key_findings: jsonObjectSchema.optional(),
-  dimensions: z.array(agent7DimensionSchema).min(1).max(16).optional(),
+  dimensions: z.array(researchDimensionSchema).min(1).max(16).optional(),
   // Legacy fields — accepted for backward compat but ignored by parallel pipeline
   max_outer_iterations: z.number().int().min(1).max(50).optional(),
   min_confidence: z.number().min(0).max(1).optional(),
