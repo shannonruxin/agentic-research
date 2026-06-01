@@ -16,8 +16,6 @@ const SAMPLE_TASK = JSON.stringify(
       "company_name business model overview",
       "company_name products services",
     ],
-    variables_to_find: ["revenue_model", "target_market", "founding_year", "employee_count"],
-    extraction_focus: "business model classification and market positioning",
     priority: "high",
     follow_domain_manual: true,
   },
@@ -31,7 +29,6 @@ export type WorkerSandboxProps = {
 
 export function WorkerSandbox({ pipelineBusy = false }: WorkerSandboxProps) {
   const [taskText, setTaskText] = useState(SAMPLE_TASK);
-  const [researchHygiene, setResearchHygiene] = useState("");
   const [userPrefs, setUserPrefs] = useState("");
   const [profileContext, setProfileContext] = useState("");
   const [loading, setLoading] = useState(false);
@@ -51,12 +48,6 @@ export function WorkerSandbox({ pipelineBusy = false }: WorkerSandboxProps) {
     }
 
     const body: Record<string, unknown> = { task };
-    const hyTrim = researchHygiene.trim();
-    if (hyTrim) {
-      try { body.research_hygiene = JSON.parse(hyTrim); } catch {
-        setError("research_hygiene is not valid JSON"); return;
-      }
-    }
     if (userPrefs.trim()) body.user_preferences_summary = userPrefs.trim();
     if (profileContext.trim()) body.profile_context = profileContext.trim();
 
@@ -114,15 +105,6 @@ export function WorkerSandbox({ pipelineBusy = false }: WorkerSandboxProps) {
         value={taskText}
         disabled={disabled}
         onChange={(e) => setTaskText(e.target.value)}
-        spellCheck={false}
-      />
-
-      <label className="block text-xs font-medium text-zinc-600">research_hygiene (optional JSON)</label>
-      <textarea
-        className="min-h-[48px] w-full resize-y rounded-md border border-zinc-300 bg-white p-3 font-mono text-xs text-zinc-900 outline-none focus:border-zinc-500 disabled:opacity-50"
-        value={researchHygiene}
-        disabled={disabled}
-        onChange={(e) => setResearchHygiene(e.target.value)}
         spellCheck={false}
       />
 

@@ -15,43 +15,31 @@ LLM fallback: generateObject with intentClassificationSchema when heuristic is a
 
 export const ORCHESTRATOR_CHEATSHEET = `Orchestrator (Chief Research Analyst) — single-brain investment analyst
 
-The orchestrator is a senior investment analyst conducting due diligence. It operates in 3 phases:
+The orchestrator is a senior investment analyst conducting due diligence. It operates in 2 phases:
 
-PLAN Phase (Round 1)
+PLAN Phase (each round)
 Input:
 - objective (required) — User's research request.
 - subject_scope (optional) — In-scope subject, out-of-scope rules, disambiguation.
-- conversation_context (optional) — Summary of prior turns.
 - user_preferences_summary — Auto-extracted from domain manual.
-- research_hygiene (optional) — Citation rules.
-- prior_key_findings, prior_dimensions, prior_known_gaps (optional) — From earlier turns.
+- thesis_evolution — JSON array of prior PLAN rounds (ThesisEvolutionFile).
+- chat_history — Last N user messages.
+- dimension_status — Active/inactive per dimension ID.
+- inactive_dimension_summaries — Compact summaries of concluded dimensions.
+- active_dimension_files — Live findings grouped by dimension ID.
 
 Output (OrchestratorPlanOutput):
-- objective_understanding — Restatement of the investment question.
-- investment_thesis_draft — Initial hypothesis to test (even if speculative).
-- dimensions — 1–16 thematic lenses (business model, competitive landscape, technology, etc.).
-- known_gaps — Grouped missing info.
-- tasks — 2–12 PlannerResearchTask objects (task_id, dimension, factor, goal, search_guidance, variables_to_find, priority).
-- execution_strategy: "all_parallel" | "two_phase" (two_phase: profile first, then rest).
-- working_notes — Private scratchpad for hypotheses and reasoning.
-
-REVIEW Phase (Round 2+, after workers return)
-Input: objective, plan, all_worker_results, round, max_rounds, prior_review (optional).
-Output (OrchestratorReviewOutput):
-- working_notes — Evolving thesis, contradictions, connections.
-- key_findings — Structured findings by dimension.
-- coverage_assessment — Per-dimension score (0.0–1.0) with reasoning.
-- contradictions — Cross-source/dimension contradictions found.
-- connections — Cross-dimension connections that strengthen/weaken thesis.
-- decision: { action: "dig_deeper", tasks: [...] } | { action: "deliver" }
-  - dig_deeper tasks REFERENCE specific findings (e.g., "revenue dropped 20%, investigate if correlated with CTO departure").
-  - Never repeats failed queries; cross-references, verifies claims, follows rabbithole leads.
-  - Forced to "deliver" on final round.
+- investment_thesis_draft — Current hypothesis.
+- thesis_evolution_entry — Full analytical snapshot: dimensions, known_gaps, key_findings, notes, connections, contradictions.
+- action: { type: "assign_tasks", tasks, execution_strategy, profile_task_id? } | { type: "deliver" }
+  - assign_tasks: design 3-8 PlannerResearchTask objects (task_id, dimension, factor, goal, search_guidance, priority).
+  - execution_strategy: "all_parallel" | "two_phase" (two_phase: profile first, then rest).
+  - deliver: when sufficient research has been gathered.
 
 DELIVER Phase (final synthesis)
-Input: objective, plan, all_worker_results, final_review, rounds_completed.
+Input: objective, thesis_evolution, active_findings, inactive_summaries, connection_insights, rounds_completed.
 Output (OrchestratorDeliverOutput):
-- user_facing_document — Full Markdown research report (executive summary, evidence-grounded analysis, sources, caveats, conclusions).
+- user_facing_document — Full Markdown investment research report.
 - key_findings, dimensions, known_gaps — Structured outputs.
 - findings_summary — { key, value } for persistence.
 - investment_thesis — Concise 2–4 sentence thesis statement.`;
@@ -59,9 +47,8 @@ Output (OrchestratorDeliverOutput):
 export const WORKER_CHEATSHEET = `Research Worker — execute one research task with web search
 
 Input
-- task (required) — PlannerResearchTask JSON (task_id, dimension, factor, goal, search_guidance, etc.).
+- task (required) — PlannerResearchTask JSON (task_id, dimension, factor, goal, search_guidance, priority).
 - domain_manual (optional) — When task.follow_domain_manual is not false.
-- research_hygiene (optional) — Citation/sourcing norms.
 - user_preferences_summary — Applicable preferences.
 - profile_context (optional) — Company profile from phase-1 worker (two_phase strategy).
 
@@ -85,16 +72,23 @@ export const FULL_PIPELINE_CHEATSHEET = `Full Pipeline — end-to-end orchestrat
 Flow
 1. Intent Router → classify chat vs research
 2. If chat → fast reply (no pipeline)
-3. Orchestrator Plan → decompose into parallel tasks with investment thesis draft
-4. Workers (parallel, max 2 concurrent with 2s stagger) → execute tasks with web search
-5. Orchestrator Review → analyze evidence, find contradictions/connections, decide: dig_deeper or deliver
-6. If dig_deeper → targeted investigative tasks referencing specific findings → back to Workers (round 2+)
-7. Orchestrator Deliver → final investment research document with thesis
-8. Persist to session/sessionN/chat-history.json + session/sessionN/{dimension}.json + user-output.md
-9. Preferences Agent (async, if preference signal detected)
+3. Orchestrator PLAN (round N) → decide action: assign_tasks or deliver
+4. If assign_tasks → Workers run tasks in parallel (with per-worker review)
+   - Each worker runs web search, writes findings to session dimension file
+   - Worker Review fires immediately after each worker: sufficient or needs_followup
+   - If needs_followup: one targeted follow-up task runs (budget: 2 per worker)
+5. Auto-conclude dimensions that received no new tasks in the round
+6. Refresh cross-dimension connection insights (fire-and-forget)
+7. Back to step 3 (next round) — up to max_rounds
+8. If action=deliver (or max_rounds reached) → Orchestrator DELIVER → final investment report
+9. Persist to session/sessionN/chat-history.json + session/sessionN/{dimension}.json + user-output.md
+10. Preferences Agent (async, if preference signal detected)
+
+Thesis evolution is tracked as JSON (ThesisEvolutionFile) — one entry per PLAN round.
+Each entry: investment_thesis, dimensions, known_gaps, key_findings, notes, connections, contradictions.
 
 Configurable via pipeline_config:
-- max_rounds (default 5, max 5) — Maximum orchestrator review rounds.
+- max_rounds (default 5, max 5) — Maximum orchestrator plan rounds.
 - max_workers_concurrent (default 2) — Parallel worker limit.
 - worker_stagger_ms (default 2000) — Delay between worker launches.
 - max_worker_steps (default 5) — Max tool-use steps per worker.
@@ -109,4 +103,4 @@ Output (ParallelPipelineResult)
 - rounds_completed — How many rounds ran.
 - preference_notification — If a preference was learned.
 - session_preferences — Active session preferences.
-- steps — Full trace: intent, orchestrator_plan, worker(s), orchestrator_review, orchestrator_deliver, preferences.`;
+- steps — Full trace: intent, orchestrator_plan, worker(s), worker_review(s), orchestrator_deliver, preferences.`;

@@ -78,7 +78,6 @@ export function useResearchChat(options?: UseResearchChatOptions) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [subjectScopeText, setSubjectScopeText] = useState("");
-  const [researchHygieneText, setResearchHygieneText] = useState("");
   const [memoryText, setMemoryText] = useState("{}");
   const [knownGapsText, setKnownGapsText] = useState("");
   const [dimensionsText, setDimensionsText] = useState("");
@@ -114,8 +113,6 @@ export function useResearchChat(options?: UseResearchChatOptions) {
 
     const mem = tryParseJsonObject(memoryText, "memory");
     if (!mem.ok) { setError(mem.error); return; }
-    const hy = tryParseJsonObject(researchHygieneText, "research_hygiene");
-    if (!hy.ok) { setError(hy.error); return; }
     const kg = tryParseKnownGaps(knownGapsText);
     if (!kg.ok) { setError(kg.error); return; }
     const dim = tryParseDimensions(dimensionsText);
@@ -150,7 +147,6 @@ export function useResearchChat(options?: UseResearchChatOptions) {
     if (Object.keys(mem.value).length) body.memory = mem.value;
     const ss = subjectScopeText.trim();
     if (ss) body.subject_scope = ss;
-    if (Object.keys(hy.value).length) body.research_hygiene = hy.value;
     if (gVal) body.known_gaps_seed = gVal;
     if (dVal) body.dimensions = dVal;
     if (kfValue && Object.keys(kfValue).length) body.key_findings = kfValue;
@@ -312,8 +308,6 @@ export function useResearchChat(options?: UseResearchChatOptions) {
     setError,
     subjectScopeText,
     setSubjectScopeText,
-    researchHygieneText,
-    setResearchHygieneText,
     memoryText,
     setMemoryText,
     knownGapsText,

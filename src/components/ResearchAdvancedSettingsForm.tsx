@@ -6,8 +6,6 @@ export function ResearchAdvancedSettingsForm({ chat }: { chat: ResearchChatContr
   const {
     subjectScopeText,
     setSubjectScopeText,
-    researchHygieneText,
-    setResearchHygieneText,
     memoryText,
     setMemoryText,
     knownGapsText,
@@ -48,12 +46,6 @@ export function ResearchAdvancedSettingsForm({ chat }: { chat: ResearchChatContr
         value={subjectScopeText}
         onChange={(e) => setSubjectScopeText(e.target.value)}
         placeholder='e.g. "Subject: humeo.com only. Out: Hume AI, Humeo Poland."'
-      />
-      <label className="block font-medium text-zinc-800">research_hygiene (JSON object, optional)</label>
-      <textarea
-        className="h-16 w-full rounded-lg border border-zinc-200 bg-zinc-50 p-2 font-mono"
-        value={researchHygieneText}
-        onChange={(e) => setResearchHygieneText(e.target.value)}
       />
       <label className="block font-medium text-zinc-800">memory (JSON object, optional)</label>
       <textarea

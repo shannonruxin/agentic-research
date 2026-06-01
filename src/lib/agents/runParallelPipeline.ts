@@ -1,15 +1,25 @@
 import { classifyIntent } from "@/lib/agents/intentRouter";
 import {
   orchestratorPlan,
-  orchestratorReview,
   orchestratorDeliver,
+  type ActiveFindingForOrchestrator,
+  type OrchestratorServices,
 } from "@/lib/agents/orchestrator";
-import { runWorkersParallel } from "@/lib/agents/researchWorker";
+import {
+  runResearchWorker,
+  runWithConcurrencyLimit,
+  MAX_CONCURRENT_WORKERS,
+  STAGGER_MS,
+} from "@/lib/agents/researchWorker";
+import { runWorkerReview } from "@/lib/agents/workerReview";
 import {
   runPreferencesAgent,
   applyPreferencePatch,
   extractApplicablePreferences,
 } from "@/lib/agents/preferencesAgent";
+import { generateDimensionSummary } from "@/lib/agents/dimensionSummaryAgent";
+import { generateConnectionInsights } from "@/lib/agents/connectionAgent";
+import { generateLearnedPatterns } from "@/lib/agents/learnedPatternsAgent";
 import {
   DOMAIN_MANUAL_FILE,
   USER_OUTPUT_FILE,
@@ -21,20 +31,34 @@ import {
 } from "@/lib/workspaceNode";
 import { buildCompactResearchMemoryForAgent7Prompt, nextResearchTurnKey } from "@/lib/researchSessionMemory";
 import { parseChatMemoryFile } from "@/lib/chatMemoryJson";
-import { appendWorkerFinding, appendChatHistoryTurn } from "@/lib/sessionStorage";
+import {
+  appendWorkerFinding,
+  appendChatHistoryTurn,
+  readActiveFindings,
+  readDimensionSummaries,
+  readConnectionInsights,
+  writeConnectionInsights,
+  writeDimensionSummary,
+  markDimensionInactive,
+  readThesisEvolution,
+  appendThesisEvolutionEntry,
+  readActiveFindingsByDimension,
+  readDimensionStatus,
+  readLearnedPatterns,
+  appendLearnedPatterns,
+} from "@/lib/sessionStorage";
 import { readUserPreferences } from "@/lib/preferenceUtils";
 import type {
   Agent7Dimension,
-  Agent7KnownGapGroup,
   DomainManualUserPreferences,
   OrchestratorDeliverOutput,
-  OrchestratorPlanOutput,
-  OrchestratorReviewOutput,
   ParallelPipelineResult,
   ParallelPipelineStep,
   PipelineConfig,
+  PlannerResearchTask,
   SessionPreference,
-  WorkerOutput,
+  ThesisEvolutionEntry,
+  WorkerReviewOutput,
 } from "@/lib/types";
 import { DEFAULT_PIPELINE_CONFIG } from "@/lib/types";
 import { enrichWorkerOutputWithAgent4Extract } from "@/lib/agents/agent4Extract";
@@ -44,15 +68,11 @@ import {
   type ParallelSourcePolicy,
   type ParallelSourcePolicyRequest,
 } from "@/lib/parallelSourcePolicy";
+import type { SessionWorkerFinding } from "@/lib/sessionStorage";
 
 export type RunParallelPipelineInput = {
   objective: string;
   subject_scope?: string;
-  research_hygiene?: Record<string, unknown>;
-  memoryJson?: Record<string, unknown>;
-  known_gaps_seed?: Agent7KnownGapGroup[];
-  key_findings?: Record<string, unknown>;
-  dimensions?: Agent7Dimension[];
   session_preferences?: SessionPreference[];
   pipeline_config?: Partial<PipelineConfig>;
   /** Merged with `PARALLEL_SEARCH_*` env for worker Parallel web search */
@@ -81,22 +101,20 @@ function buildPipelineTrace(steps: ParallelPipelineStep[]): Record<string, unkno
       case "orchestrator_plan":
         pipeline_trace.push({
           step: "orchestrator_plan",
-          objective_understanding: step.result.objective_understanding,
+          round: step.round,
           investment_thesis_draft: step.result.investment_thesis_draft,
-          execution_strategy: step.result.execution_strategy,
-          profile_task_id: step.result.profile_task_id,
-          dimensions: step.result.dimensions,
-          known_gaps: step.result.known_gaps,
-          tasks: step.result.tasks.map((t) => ({
-            task_id: t.task_id,
-            dimension: t.dimension,
-            factor: t.factor,
-            goal: t.goal,
-            priority: t.priority,
-            search_guidance: t.search_guidance,
-            variables_to_find: t.variables_to_find,
-          })),
-          working_notes: step.result.working_notes,
+          action_type: step.result.action.type,
+          thesis_evolution_entry: step.result.thesis_evolution_entry,
+          tasks: step.result.action.type === "assign_tasks"
+            ? step.result.action.tasks.map((t) => ({
+                task_id: t.task_id,
+                dimension: t.dimension,
+                factor: t.factor,
+                goal: t.goal,
+                priority: t.priority,
+                search_guidance: t.search_guidance,
+              }))
+            : [],
         });
         break;
       case "worker":
@@ -115,26 +133,15 @@ function buildPipelineTrace(steps: ParallelPipelineStep[]): Record<string, unkno
           rabbithole_leads: step.result.rabbithole_leads,
         });
         break;
-      case "orchestrator_review":
+      case "worker_review":
         pipeline_trace.push({
-          step: "orchestrator_review",
+          step: "worker_review",
           round: step.round,
-          working_notes: step.result.working_notes,
-          key_findings: step.result.key_findings,
-          coverage_assessment: step.result.coverage_assessment,
-          contradictions: step.result.contradictions,
-          connections: step.result.connections,
-          decision_action: step.result.decision.action,
-          dig_deeper_tasks: step.result.decision.action === "dig_deeper"
-            ? step.result.decision.tasks.map((t) => ({
-                task_id: t.task_id,
-                dimension: t.dimension,
-                factor: t.factor,
-                goal: t.goal,
-              }))
-            : undefined,
-          dimensions: step.result.dimensions,
-          known_gaps: step.result.known_gaps,
+          task_id: step.task_id,
+          dimension: step.dimension,
+          verdict: step.result.verdict,
+          assessment: step.result.assessment,
+          has_follow_up: step.result.follow_up_task !== null,
         });
         break;
       case "orchestrator_deliver":
@@ -199,6 +206,132 @@ async function checkpointTurn(
   }).catch(() => {});
 }
 
+// ---------------------------------------------------------------------------
+// Dimension conclusion logic
+// ---------------------------------------------------------------------------
+
+/**
+ * After a PLAN round, identify active dimensions that got NO new tasks assigned.
+ * Generate compact summaries and mark them inactive.
+ * Fire-and-forget — errors are swallowed to avoid blocking the pipeline.
+ */
+async function concludeCompletedDimensions(
+  sessionId: number,
+  assignedTasks: PlannerResearchTask[],
+  allKnownDimensions: Agent7Dimension[],
+): Promise<void> {
+  try {
+    const assignedDimIds = new Set(assignedTasks.map((t) => t.dimension));
+    const activeFindings = await readActiveFindings(sessionId);
+    const activeDimIds = new Set(activeFindings.map((f) => f.dimension));
+
+    for (const dim of allKnownDimensions) {
+      if (activeDimIds.has(dim.id) && !assignedDimIds.has(dim.id)) {
+        // Active dimension got no new tasks → conclude
+        const dimFindings = activeFindings.filter((f) => f.dimension === dim.id);
+        const summary = await generateDimensionSummary({
+          dimensionId: dim.id,
+          dimensionLabel: dim.label,
+          findings: dimFindings,
+        });
+        await writeDimensionSummary(sessionId, dim.id, summary);
+        await markDimensionInactive(sessionId, dim.id);
+      }
+    }
+  } catch {
+    // non-fatal
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Worker with per-worker review
+// ---------------------------------------------------------------------------
+
+async function runWorkerWithReview(input: {
+  task: PlannerResearchTask;
+  dimension: { id: string; label: string; description?: string };
+  sessionId: number;
+  turnNumber: number;
+  round: number;
+  objective: string;
+  followUpBudget: number;
+  domain_manual: Record<string, unknown>;
+  user_preferences_summary: string;
+  profile_context?: string;
+  search_source_policy: ParallelSourcePolicy | null;
+  onStep: (step: ParallelPipelineStep) => void;
+}): Promise<void> {
+  // Read current dimension findings for context
+  const allFindings = await readActiveFindings(input.sessionId);
+  const dimensionFindings: SessionWorkerFinding[] = allFindings.filter(
+    (f) => f.dimension === input.task.dimension,
+  );
+
+  // Run worker
+  let workerResult = await runResearchWorker({
+    task: input.task,
+    domain_manual: input.task.follow_domain_manual !== false ? input.domain_manual : undefined,
+    user_preferences_summary: input.user_preferences_summary,
+    profile_context: input.profile_context,
+    dimension_findings: dimensionFindings.length > 0 ? dimensionFindings : undefined,
+    search_source_policy: input.search_source_policy,
+  });
+
+  // Enrich with Agent4 extract
+  workerResult = await enrichWorkerOutputWithAgent4Extract(workerResult);
+
+  // Write finding
+  await appendWorkerFinding(input.sessionId, workerResult, input.turnNumber, input.round);
+
+  // Push worker step
+  input.onStep({ kind: "worker", task_id: input.task.task_id, round: input.round, result: workerResult });
+
+  // Read updated dimension findings (includes the one just written)
+  const updatedFindings = await readActiveFindings(input.sessionId);
+  const updatedDimFindings = updatedFindings.filter((f) => f.dimension === input.task.dimension);
+
+  // Run worker review
+  let reviewResult: WorkerReviewOutput;
+  try {
+    reviewResult = await runWorkerReview({
+      objective: input.objective,
+      dimension: input.dimension,
+      task: input.task,
+      worker_output: workerResult,
+      dimension_findings: updatedDimFindings,
+      follow_up_budget: input.followUpBudget,
+    });
+  } catch {
+    reviewResult = {
+      verdict: "sufficient",
+      assessment: "Review failed — accepting worker output.",
+      follow_up_task: null,
+    };
+  }
+
+  // Push worker_review step
+  input.onStep({
+    kind: "worker_review",
+    task_id: input.task.task_id,
+    round: input.round,
+    dimension: input.task.dimension,
+    result: reviewResult,
+  });
+
+  // If needs_followup and budget > 0: recurse
+  if (reviewResult.verdict === "needs_followup" && reviewResult.follow_up_task && input.followUpBudget > 0) {
+    await runWorkerWithReview({
+      ...input,
+      task: reviewResult.follow_up_task,
+      followUpBudget: input.followUpBudget - 1,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Main pipeline
+// ---------------------------------------------------------------------------
+
 export async function runParallelPipeline(
   input: RunParallelPipelineInput,
 ): Promise<ParallelPipelineResult> {
@@ -215,11 +348,20 @@ export async function runParallelPipeline(
   const chatMemoryRaw = await readWorkspaceText(chatHistoryFile);
   const chatMemoryDoc = parseChatMemoryFile(chatMemoryRaw);
   const currentTurnKey = nextResearchTurnKey(chatMemoryDoc);
+  const turnNumber = parseInt(currentTurnKey, 10);
 
   const conversationContext = buildCompactResearchMemoryForAgent7Prompt(chatMemoryRaw, {
     maxTurnsInFullDetail: 2,
     minOlderTurnsForSummaryOnly: 1,
   });
+
+  // Extract last 10 user messages from chat history for PLAN context
+  const chatHistory: string[] = [];
+  const turnKeys = Object.keys(chatMemoryDoc).sort((a, b) => parseInt(a) - parseInt(b));
+  for (const key of turnKeys.slice(-10)) {
+    const turn = chatMemoryDoc[key] as { question?: string } | undefined;
+    if (turn?.question) chatHistory.push(turn.question);
+  }
 
   // --- Intent classification ---
   let intent;
@@ -246,9 +388,9 @@ export async function runParallelPipeline(
       success: true,
       stopped: "chat_reply",
       document_markdown: reply,
-      key_findings: input.key_findings ?? {},
-      dimensions: input.dimensions ?? [],
-      known_gaps: input.known_gaps_seed ?? [],
+      key_findings: {},
+      dimensions: [],
+      known_gaps: [],
       chat_memory_path: chatHistoryFile,
       user_output_path: USER_OUTPUT_FILE,
       rounds_completed: 0,
@@ -280,9 +422,9 @@ export async function runParallelPipeline(
         success: true,
         stopped: "chat_reply",
         document_markdown: reply,
-        key_findings: input.key_findings ?? {},
-        dimensions: input.dimensions ?? [],
-        known_gaps: input.known_gaps_seed ?? [],
+        key_findings: {},
+        dimensions: [],
+        known_gaps: [],
         chat_memory_path: chatHistoryFile,
         user_output_path: USER_OUTPUT_FILE,
         preference_notification: prefResult.notification,
@@ -300,9 +442,9 @@ export async function runParallelPipeline(
         success: true,
         stopped: "chat_reply",
         document_markdown: reply,
-        key_findings: input.key_findings ?? {},
-        dimensions: input.dimensions ?? [],
-        known_gaps: input.known_gaps_seed ?? [],
+        key_findings: {},
+        dimensions: [],
+        known_gaps: [],
         chat_memory_path: chatHistoryFile,
         user_output_path: USER_OUTPUT_FILE,
         rounds_completed: 0,
@@ -311,103 +453,178 @@ export async function runParallelPipeline(
     }
   }
 
-  // --- Research pipeline: Orchestrator → Workers → Review loop → Deliver ---
+  // --- Research pipeline: Orchestrator PLAN → Workers+Reviews → loop → Deliver ---
 
-  let planResult: OrchestratorPlanOutput;
-  try {
-    planResult = await orchestratorPlan({
-      objective: input.objective,
-      subject_scope: input.subject_scope,
-      domain_manual,
-      conversation_context: conversationContext,
-      user_preferences_summary: userPrefsSummary,
-      research_hygiene: input.research_hygiene,
-      prior_key_findings: input.key_findings,
-      prior_dimensions: input.dimensions,
-      prior_known_gaps: input.known_gaps_seed,
-      config,
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { success: false, error: `[orchestrator_plan] ${msg}`, steps };
-  }
-  steps.push({ kind: "orchestrator_plan", result: planResult });
-  void checkpointTurn(sessionId, currentTurnKey, input.objective, steps);
+  const learnedPatterns = await readLearnedPatterns();
 
-  const maxRounds = Math.min(config.max_rounds, 5);
-  let allWorkerResults: WorkerOutput[] = [];
-  let lastReview: OrchestratorReviewOutput | undefined;
   let round = 0;
-  let tasksForRound = planResult.tasks.slice(0, config.max_tasks_per_round);
+  const maxRounds = Math.min(config.max_rounds, 5);
 
-  while (true) {
+  while (round < maxRounds) {
     round++;
 
-    // Capture round in closure for the onWorkerComplete callback.
-    const currentRound = round;
+    // Read current state from disk
+    const [thesisEvolution, dimensionStatus, inactiveSummaries, activeDimFiles] = await Promise.all([
+      readThesisEvolution(sessionId),
+      readDimensionStatus(sessionId),
+      readDimensionSummaries(sessionId),
+      readActiveFindingsByDimension(sessionId),
+    ]);
 
-    let roundWorkerResults: WorkerOutput[];
+    const services: OrchestratorServices = {
+      domain_manual: Object.keys(domain_manual).length > 0 ? domain_manual : undefined,
+      learned_patterns: learnedPatterns.trim() || undefined,
+    };
+
+    // Call PLAN
+    let planResult;
     try {
-      roundWorkerResults = await runWorkersParallel({
-        tasks: tasksForRound,
-        domain_manual,
-        research_hygiene: input.research_hygiene,
-        user_preferences_summary: userPrefsSummary,
-        execution_strategy: round === 1 ? planResult.execution_strategy : "all_parallel",
-        profile_task_id: round === 1 ? planResult.profile_task_id : undefined,
-        max_concurrent: config.max_workers_concurrent,
-        stagger_ms: config.worker_stagger_ms,
-        search_source_policy: searchSourcePolicy,
-        // Live write: fires immediately when each worker finishes, before the next starts.
-        onWorkerComplete: async (result) => {
-          await appendWorkerFinding(
-            sessionId,
-            result,
-            parseInt(currentTurnKey, 10),
-            currentRound,
-          );
-        },
-      });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return { success: false, error: `[workers round ${round}] ${msg}`, steps };
-    }
-
-    roundWorkerResults = await Promise.all(roundWorkerResults.map((w) => enrichWorkerOutputWithAgent4Extract(w)));
-
-    for (const wr of roundWorkerResults) {
-      steps.push({ kind: "worker", task_id: wr.task_id, round, result: wr });
-    }
-    allWorkerResults = [...allWorkerResults, ...roundWorkerResults];
-
-    let review: OrchestratorReviewOutput;
-    try {
-      review = await orchestratorReview({
+      planResult = await orchestratorPlan({
         objective: input.objective,
         subject_scope: input.subject_scope,
+        services,
         user_preferences_summary: userPrefsSummary,
-        plan: planResult,
-        all_worker_results: allWorkerResults,
+        thesis_evolution: thesisEvolution,
+        chat_history: chatHistory,
+        dimension_status: dimensionStatus,
+        inactive_dimension_summaries: inactiveSummaries,
+        active_dimension_files: activeDimFiles,
         round,
-        max_rounds: maxRounds,
-        prior_review: lastReview,
         config,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      return { success: false, error: `[orchestrator_review round ${round}] ${msg}`, steps };
+      return { success: false, error: `[orchestrator_plan round ${round}] ${msg}`, steps };
     }
-    steps.push({ kind: "orchestrator_review", round, result: review });
-    lastReview = review;
+
+    steps.push({ kind: "orchestrator_plan", round, result: planResult });
+
+    // Append thesis evolution entry (inject turn + round)
+    const entryWithMeta: ThesisEvolutionEntry = {
+      ...planResult.thesis_evolution_entry,
+      turn: turnNumber,
+      round,
+    };
+    void appendThesisEvolutionEntry(sessionId, entryWithMeta).catch(() => {});
+
     void checkpointTurn(sessionId, currentTurnKey, input.objective, steps);
 
-    if (review.decision.action === "deliver" || round >= maxRounds) {
-      break;
+    // Check action
+    if (planResult.action.type === "deliver") {
+      break; // exit loop, proceed to deliver
     }
 
-    tasksForRound = review.decision.tasks.slice(0, config.max_tasks_per_round);
+    // Assign tasks → run workers with reviews
+    const { tasks, execution_strategy, profile_task_id } = planResult.action;
+    const tasksForRound = tasks.slice(0, config.max_tasks_per_round);
+
     if (tasksForRound.length === 0) break;
+
+    // Get dimensions from the thesis evolution entry for context
+    const knownDimensions = planResult.thesis_evolution_entry.dimensions;
+
+    // Build dimension lookup for worker reviews
+    const dimensionLookup = new Map(knownDimensions.map((d) => [d.id, d]));
+
+    // Wrap a single worker+review with try/catch so one failure doesn't sink the round.
+    const runOne = (task: PlannerResearchTask, profile_context?: string) => async () => {
+      const dim = dimensionLookup.get(task.dimension) ?? { id: task.dimension, label: task.dimension };
+      try {
+        await runWorkerWithReview({
+          task,
+          dimension: dim,
+          sessionId,
+          turnNumber,
+          round,
+          objective: input.objective,
+          followUpBudget: 2,
+          domain_manual,
+          user_preferences_summary: userPrefsSummary,
+          profile_context,
+          search_source_policy: searchSourcePolicy,
+          onStep: (s) => steps.push(s),
+        });
+      } catch (e) {
+        // Per-worker failure (rate limit, parse error, etc.) — log into the trace and continue.
+        const msg = e instanceof Error ? e.message : String(e);
+        steps.push({
+          kind: "worker_review",
+          task_id: task.task_id,
+          round,
+          dimension: task.dimension,
+          result: {
+            verdict: "sufficient",
+            assessment: `Worker failed: ${msg.slice(0, 200)}`,
+            follow_up_task: null,
+          },
+        });
+      }
+    };
+
+    // Handle two_phase: run profile task first (sequentially), then rest with concurrency limit
+    if (execution_strategy === "two_phase" && profile_task_id) {
+      const profileTask = tasksForRound.find((t) => t.task_id === profile_task_id);
+      if (profileTask) {
+        await runOne(profileTask)();
+      }
+
+      // Read profile context from the finding just written
+      const profileFindings = await readActiveFindings(sessionId);
+      const profileFinding = profileFindings.find((f) => f.task_id === profile_task_id);
+      const profileContext = profileFinding
+        ? `Company/subject profile from initial research:\n${profileFinding.summary}`
+        : undefined;
+
+      // Run remaining tasks with concurrency limit + stagger
+      const remaining = tasksForRound.filter((t) => t.task_id !== profile_task_id);
+      const fns = remaining.map((task) => runOne(task, profileContext));
+      await runWithConcurrencyLimit(fns, MAX_CONCURRENT_WORKERS, STAGGER_MS);
+    } else {
+      // all_parallel — still concurrency-limited to avoid Bedrock throttling
+      const fns = tasksForRound.map((task) => runOne(task));
+      await runWithConcurrencyLimit(fns, MAX_CONCURRENT_WORKERS, STAGGER_MS);
+    }
+
+    // Auto-conclude dimensions that got no new tasks
+    void concludeCompletedDimensions(sessionId, tasksForRound, knownDimensions);
+
+    // Refresh connection insights (fire-and-forget)
+    void (async () => {
+      try {
+        const [freshActive, freshInactive] = await Promise.all([
+          readActiveFindings(sessionId),
+          readDimensionSummaries(sessionId),
+        ]);
+        const insights = await generateConnectionInsights({
+          objective: input.objective,
+          activeFindings: freshActive,
+          inactiveSummaries: freshInactive,
+        });
+        if (insights) await writeConnectionInsights(sessionId, insights);
+      } catch { /* non-fatal */ }
+    })();
+
+    void checkpointTurn(sessionId, currentTurnKey, input.objective, steps);
   }
+
+  // Read final state for deliver
+  const [finalThesisEvolution, finalActiveFindings, finalInactiveSummaries, finalConnectionInsights] = await Promise.all([
+    readThesisEvolution(sessionId),
+    readActiveFindings(sessionId),
+    readDimensionSummaries(sessionId),
+    readConnectionInsights(sessionId),
+  ]);
+
+  const finalActiveFindingsForOrch: ActiveFindingForOrchestrator[] = finalActiveFindings.map((f) => ({
+    dimension: f.dimension,
+    factor: f.factor,
+    task_id: f.task_id,
+    round: f.round,
+    confidence: f.confidence,
+    summary: f.summary,
+    gaps_remaining: f.gaps_remaining,
+    rabbithole_leads: f.rabbithole_leads,
+  }));
 
   let delivered: OrchestratorDeliverOutput;
   try {
@@ -415,9 +632,10 @@ export async function runParallelPipeline(
       objective: input.objective,
       subject_scope: input.subject_scope,
       user_preferences_summary: userPrefsSummary,
-      plan: planResult,
-      all_worker_results: allWorkerResults,
-      final_review: lastReview!,
+      thesis_evolution: finalThesisEvolution,
+      active_findings: finalActiveFindingsForOrch,
+      inactive_summaries: finalInactiveSummaries,
+      connection_insights: finalConnectionInsights,
       rounds_completed: round,
       config,
     });
@@ -438,6 +656,35 @@ export async function runParallelPipeline(
     roundsCompleted: round,
   });
 
+  // Fire-and-forget: extract generalizable patterns and append to global learned-patterns.md
+  void (async () => {
+    try {
+      const lastEntry = finalThesisEvolution.rounds[finalThesisEvolution.rounds.length - 1];
+      const finalNotes = lastEntry?.notes ?? "";
+      const finalKeyFindings = lastEntry?.key_findings ?? {};
+      const connections = lastEntry?.connections ?? [];
+      const contradictions = lastEntry?.contradictions ?? [];
+
+      const patterns = await generateLearnedPatterns({
+        objective: input.objective,
+        subject: input.objective,
+        investment_thesis: delivered.investment_thesis,
+        dimensions: delivered.dimensions,
+        key_findings: finalKeyFindings,
+        connections,
+        contradictions,
+        final_notes: finalNotes,
+      });
+      if (patterns.trim()) {
+        const today = new Date().toISOString().slice(0, 10);
+        const entry = `## ${today} — ${input.objective.slice(0, 80)}\n\n${patterns}\n\n---`;
+        await appendLearnedPatterns(entry);
+      }
+    } catch {
+      // non-fatal
+    }
+  })();
+
   // --- Preferences (async, non-blocking) ---
   let prefNotification: string | undefined;
   let newSessionPrefs = sessionPrefs;
@@ -448,7 +695,7 @@ export async function runParallelPipeline(
         user_message: input.objective,
         conversation_context: conversationContext,
         current_preferences: userPrefs,
-        objective_context: planResult.objective_understanding,
+        objective_context: input.objective,
       });
       steps.push({ kind: "preferences", result: prefResult });
       prefNotification = prefResult.notification;

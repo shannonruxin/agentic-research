@@ -86,8 +86,6 @@ export interface PlannerResearchTask {
   goal: string;
   context?: Record<string, unknown>;
   search_guidance: string[];
-  variables_to_find?: string[];
-  extraction_focus?: string;
   priority: "high" | "medium" | "low";
   follow_domain_manual?: boolean;
 }
@@ -112,12 +110,6 @@ export interface WorkerOutput {
   gaps_remaining: string[];
   search_queries_used: string[];
   rabbithole_leads?: string[];
-}
-
-export interface CoverageAssessment {
-  dimension: string;
-  score: number;
-  reasoning: string;
 }
 
 export type PreferenceScope = "session" | "conditional_global" | "global";
@@ -197,26 +189,41 @@ export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = {
 // Orchestrator Types
 // ---------------------------------------------------------------------------
 
-export interface OrchestratorPlanOutput {
-  objective_understanding: string;
-  investment_thesis_draft: string;
+export interface ThesisEvolutionEntry {
+  turn: number;
+  round: number;
+  investment_thesis: string;
   dimensions: Agent7Dimension[];
   known_gaps: Agent7KnownGapGroup[];
-  tasks: PlannerResearchTask[];
-  execution_strategy: "all_parallel" | "two_phase";
-  profile_task_id?: string;
-  working_notes: string;
+  key_findings: Record<string, string>;
+  notes: string;
+  connections: string[];
+  contradictions: string[];
 }
 
-export interface OrchestratorReviewOutput {
-  working_notes: string;
-  key_findings: Record<string, unknown>;
-  coverage_assessment: CoverageAssessment[];
-  dimensions: Agent7Dimension[];
-  known_gaps: Agent7KnownGapGroup[];
-  contradictions: string[];
-  connections: string[];
-  decision: { action: "dig_deeper"; tasks: PlannerResearchTask[] } | { action: "deliver" };
+export interface ThesisEvolutionFile {
+  rounds: ThesisEvolutionEntry[];
+}
+
+export type PlanAction =
+  | {
+      type: "assign_tasks";
+      tasks: PlannerResearchTask[];
+      execution_strategy: "all_parallel" | "two_phase";
+      profile_task_id?: string;
+    }
+  | { type: "deliver" };
+
+export interface WorkerReviewOutput {
+  verdict: "sufficient" | "needs_followup";
+  assessment: string;
+  follow_up_task: PlannerResearchTask | null;
+}
+
+export interface OrchestratorPlanOutput {
+  investment_thesis_draft: string;
+  thesis_evolution_entry: ThesisEvolutionEntry;
+  action: PlanAction;
 }
 
 export interface OrchestratorDeliverOutput {
@@ -234,9 +241,9 @@ export interface OrchestratorDeliverOutput {
 
 export type ParallelPipelineStep =
   | { kind: "intent"; result: IntentClassification }
-  | { kind: "orchestrator_plan"; result: OrchestratorPlanOutput }
+  | { kind: "orchestrator_plan"; round: number; result: OrchestratorPlanOutput }
   | { kind: "worker"; task_id: string; round: number; result: WorkerOutput }
-  | { kind: "orchestrator_review"; round: number; result: OrchestratorReviewOutput }
+  | { kind: "worker_review"; task_id: string; round: number; dimension: string; result: WorkerReviewOutput }
   | { kind: "orchestrator_deliver"; result: OrchestratorDeliverOutput }
   | { kind: "preferences"; result: PreferencesAgentOutput };
 

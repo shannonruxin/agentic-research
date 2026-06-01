@@ -15,9 +15,13 @@ export type FullPipelineSandboxProps = {
 function stepLabel(step: ParallelPipelineStep): string {
   switch (step.kind) {
     case "intent": return `Intent → ${step.result.intent}`;
-    case "orchestrator_plan": return `Orchestrator Plan → ${step.result.tasks.length} tasks (${step.result.execution_strategy})`;
+    case "orchestrator_plan": {
+      const taskCount = step.result.action.type === "assign_tasks" ? step.result.action.tasks.length : 0;
+      const strategy = step.result.action.type === "assign_tasks" ? step.result.action.execution_strategy : "deliver";
+      return `Orchestrator Plan R${step.round} → ${step.result.action.type === "deliver" ? "deliver" : `${taskCount} tasks (${strategy})`}`;
+    }
     case "worker": return `Worker R${step.round}: ${step.task_id} [conf ${(step.result.confidence).toFixed(2)}]`;
-    case "orchestrator_review": return `Orchestrator Review R${step.round} → ${step.result.decision.action}`;
+    case "worker_review": return `Worker Review R${step.round}: ${step.task_id} → ${step.result.verdict}`;
     case "orchestrator_deliver": return `Orchestrator Deliver → thesis: ${step.result.investment_thesis.slice(0, 60)}…`;
     case "preferences": return `Preferences → ${step.result.scope}: ${step.result.notification.slice(0, 60)}`;
   }
@@ -26,7 +30,6 @@ function stepLabel(step: ParallelPipelineStep): string {
 export function FullPipelineSandbox({ pipelineBusy = false, onBusyChange }: FullPipelineSandboxProps) {
   const [objective, setObjective] = useState("");
   const [subjectScope, setSubjectScope] = useState("");
-  const [researchHygiene, setResearchHygiene] = useState("");
   const [showConfig, setShowConfig] = useState(false);
   const [maxRounds, setMaxRounds] = useState("5");
   const [maxWorkersConcurrent, setMaxWorkersConcurrent] = useState("2");
@@ -75,12 +78,6 @@ export function FullPipelineSandbox({ pipelineBusy = false, onBusyChange }: Full
 
     const body: Record<string, unknown> = { objective: objective.trim() };
     if (subjectScope.trim()) body.subject_scope = subjectScope.trim();
-    const hyTrim = researchHygiene.trim();
-    if (hyTrim) {
-      try { body.research_hygiene = JSON.parse(hyTrim); } catch {
-        setError("research_hygiene is not valid JSON"); return;
-      }
-    }
     const pipelineConfig = buildPipelineConfig();
     if (pipelineConfig) body.pipeline_config = pipelineConfig;
 
@@ -150,15 +147,6 @@ export function FullPipelineSandbox({ pipelineBusy = false, onBusyChange }: Full
         value={subjectScope}
         disabled={disabled}
         onChange={(e) => setSubjectScope(e.target.value)}
-      />
-
-      <label className="block text-xs font-medium text-zinc-600">research_hygiene (optional JSON)</label>
-      <textarea
-        className="min-h-[48px] w-full resize-y rounded-md border border-zinc-300 bg-white p-3 font-mono text-xs text-zinc-900 outline-none focus:border-zinc-500 disabled:opacity-50"
-        value={researchHygiene}
-        disabled={disabled}
-        onChange={(e) => setResearchHygiene(e.target.value)}
-        spellCheck={false}
       />
 
       <button

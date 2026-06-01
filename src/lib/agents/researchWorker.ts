@@ -8,6 +8,7 @@ import {
 } from "@/lib/parallelSourcePolicy";
 import type { ParallelSourcePolicy } from "@/lib/parallelSourcePolicy";
 import type { ExtractedKeyDatum, PlannerResearchTask, WorkerOutput } from "@/lib/types";
+import type { SessionWorkerFinding } from "@/lib/sessionStorage";
 
 const WORKER_SYSTEM = `You are a Research Worker. You have been assigned a specific research task. You have access to a webSearch tool to find information on the web.
 
@@ -22,7 +23,6 @@ Rules:
 - Do NOT fabricate URLs, quotes, or data points.
 - Extract specific data: numbers, names, dates, mechanisms — not vague summaries.
 - Track which URL each piece of information came from.
-- If the task includes variables_to_find, prioritize finding those specific data points.
 - If domain_manual guidance is provided, follow its process steps.
 - Apply any user_preferences noted in your task context.
 - Be efficient: 1-3 searches should suffice for most tasks. Do not search more than needed.
@@ -48,9 +48,9 @@ Output ONLY the JSON object. No markdown fences, no explanatory text before or a
 function buildWorkerPrompt(input: {
   task: PlannerResearchTask;
   domain_manual?: Record<string, unknown>;
-  research_hygiene?: Record<string, unknown>;
   user_preferences_summary: string;
   profile_context?: string;
+  dimension_findings?: SessionWorkerFinding[];
 }): string {
   const parts: string[] = [
     "research_task:",
@@ -58,16 +58,25 @@ function buildWorkerPrompt(input: {
     "",
   ];
 
+  if (input.dimension_findings && input.dimension_findings.length > 0) {
+    parts.push(
+      "Prior findings for this dimension (for context — do not repeat, look for what's still missing):",
+    );
+    for (const f of input.dimension_findings) {
+      parts.push(`  [Round ${f.round}] ${f.factor}: ${f.summary.slice(0, 300)}${f.summary.length > 300 ? "…" : ""}`);
+      if (f.gaps_remaining.length > 0) {
+        parts.push(`  Gaps: ${f.gaps_remaining.slice(0, 3).join("; ")}`);
+      }
+    }
+    parts.push("");
+  }
+
   if (input.profile_context?.trim()) {
     parts.push("Company/subject profile (from prior phase):", input.profile_context.trim(), "");
   }
 
   if (input.domain_manual && Object.keys(input.domain_manual).length > 0) {
     parts.push("domain_manual:", JSON.stringify(input.domain_manual, null, 2), "");
-  }
-
-  if (input.research_hygiene && Object.keys(input.research_hygiene).length > 0) {
-    parts.push("research_hygiene:", JSON.stringify(input.research_hygiene, null, 2), "");
   }
 
   if (input.user_preferences_summary.trim()) {
@@ -100,9 +109,10 @@ function parseWorkerOutput(text: string, task: PlannerResearchTask): WorkerOutpu
   try {
     const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
     return {
-      task_id: typeof parsed.task_id === "string" ? parsed.task_id : task.task_id,
-      dimension: typeof parsed.dimension === "string" ? parsed.dimension : task.dimension,
-      factor: typeof parsed.factor === "string" ? parsed.factor : task.factor,
+      task_id: task.task_id,
+      dimension: task.dimension,
+      // factor comes from the LLM's output — it may refine the planned factor based on what was found
+      factor: typeof parsed.factor === "string" && parsed.factor.trim() ? parsed.factor.trim() : task.factor,
       summary: typeof parsed.summary === "string" ? parsed.summary : "Worker did not produce a summary.",
       sources: Array.isArray(parsed.sources)
         ? (parsed.sources as Record<string, unknown>[]).map((s) => ({
@@ -145,9 +155,9 @@ function parseWorkerOutput(text: string, task: PlannerResearchTask): WorkerOutpu
 export async function runResearchWorker(input: {
   task: PlannerResearchTask;
   domain_manual?: Record<string, unknown>;
-  research_hygiene?: Record<string, unknown>;
   user_preferences_summary: string;
   profile_context?: string;
+  dimension_findings?: SessionWorkerFinding[];
   /** Pipeline-merged policy (env ∪ request); falls back to env-only when null */
   search_source_policy?: ParallelSourcePolicy | null;
 }): Promise<WorkerOutput> {
@@ -209,7 +219,8 @@ export async function runResearchWorker(input: {
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";
       if (msg.toLowerCase().includes("too many requests") && attempt < maxAttempts) {
-        const backoff = attempt * 5000;
+        // 8s, 20s, 40s — rides out Bedrock throttle windows instead of bunching retries
+        const backoff = [8000, 20000, 40000][attempt - 1] ?? 8000;
         await new Promise((r) => setTimeout(r, backoff));
         continue;
       }
@@ -219,10 +230,10 @@ export async function runResearchWorker(input: {
   throw new Error("Worker exhausted retries");
 }
 
-const MAX_CONCURRENT_WORKERS = 2;
-const STAGGER_MS = 2000;
+export const MAX_CONCURRENT_WORKERS = 2;
+export const STAGGER_MS = 2000;
 
-async function runWithConcurrencyLimit<T>(
+export async function runWithConcurrencyLimit<T>(
   fns: (() => Promise<T>)[],
   limit: number,
   staggerMs: number,
@@ -254,10 +265,10 @@ async function runWithConcurrencyLimit<T>(
 export async function runWorkersParallel(input: {
   tasks: PlannerResearchTask[];
   domain_manual: Record<string, unknown>;
-  research_hygiene?: Record<string, unknown>;
   user_preferences_summary: string;
   execution_strategy: "all_parallel" | "two_phase";
   profile_task_id?: string;
+  dimension_findings_by_dim?: Record<string, SessionWorkerFinding[]>;
   max_concurrent?: number;
   stagger_ms?: number;
   search_source_policy?: ParallelSourcePolicy | null;
@@ -268,6 +279,7 @@ export async function runWorkersParallel(input: {
     tasks,
     execution_strategy,
     profile_task_id,
+    dimension_findings_by_dim,
     max_concurrent,
     stagger_ms,
     search_source_policy,
@@ -285,8 +297,8 @@ export async function runWorkersParallel(input: {
     const profileResult = await runResearchWorker({
       task: profileTask,
       domain_manual: domainManual,
-      research_hygiene: common.research_hygiene,
       user_preferences_summary: common.user_preferences_summary,
+      dimension_findings: dimension_findings_by_dim?.[profileTask.dimension],
       search_source_policy,
     });
     if (onWorkerComplete) await onWorkerComplete(profileResult);
@@ -304,9 +316,9 @@ export async function runWorkersParallel(input: {
       runResearchWorker({
         task,
         domain_manual: task.follow_domain_manual !== false ? common.domain_manual : undefined,
-        research_hygiene: common.research_hygiene,
         user_preferences_summary: common.user_preferences_summary,
         profile_context: profileContext,
+        dimension_findings: dimension_findings_by_dim?.[task.dimension],
         search_source_policy,
       }),
     );
@@ -319,8 +331,8 @@ export async function runWorkersParallel(input: {
     runResearchWorker({
       task,
       domain_manual: task.follow_domain_manual !== false ? common.domain_manual : undefined,
-      research_hygiene: common.research_hygiene,
       user_preferences_summary: common.user_preferences_summary,
+      dimension_findings: dimension_findings_by_dim?.[task.dimension],
       search_source_policy,
     }),
   );

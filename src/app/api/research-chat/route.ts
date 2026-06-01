@@ -29,7 +29,6 @@ const sourcePolicyBodySchema = z
 const bodySchema = z.object({
   message: z.string().min(1),
   subject_scope: z.string().max(12_000).optional(),
-  research_hygiene: jsonObjectSchema.optional(),
   memory: jsonObjectSchema.optional(),
   known_gaps_seed: z.array(knownGapGroupBodySchema).optional(),
   key_findings: jsonObjectSchema.optional(),
@@ -79,11 +78,6 @@ export async function POST(req: Request) {
     const result = await runParallelPipeline({
       objective: b.message,
       subject_scope: b.subject_scope,
-      research_hygiene: b.research_hygiene,
-      memoryJson: b.memory,
-      known_gaps_seed: b.known_gaps_seed,
-      key_findings: b.key_findings,
-      dimensions: b.dimensions,
       session_preferences: b.session_preferences,
       pipeline_config: b.pipeline_config,
       source_policy_request: b.sourcePolicy ?? undefined,

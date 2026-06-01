@@ -111,7 +111,7 @@ function compactAgent7ForPrompt(out: unknown): unknown {
     kfOut = truncStr(kf, 3_000);
   }
   return {
-    objective_understanding: truncStr(o.objective_understanding, 900),
+    investment_thesis_draft: truncStr(o.investment_thesis_draft, 900),
     orchestration: o.orchestration,
     train_of_thought: truncStr(o.train_of_thought, 1_500),
     confidence: o.confidence,

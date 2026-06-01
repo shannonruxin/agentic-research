@@ -71,11 +71,74 @@ export const USER_OUTPUT_FILE = path.join(WORKSPACE_DIR, "user-output.md");
  */
 export const DOMAIN_MANUAL_FILE = path.join(WORKSPACE_GLOBAL_DIR, "domain-manuals", "domain-manual.json");
 
-/** Orchestrator phases (plan / review / deliver): `workspace/orchestrator-state/system-prompt.md`. */
+// ---------------------------------------------------------------------------
+// Orchestrator state paths
+// ---------------------------------------------------------------------------
+
+/**
+ * Global orchestrator system prompt — user edits this once, shared across all sessions.
+ * Lives under `workspace/global/orchestrator-state/`.
+ */
 export const ORCHESTRATOR_SYSTEM_PROMPT_FILE = path.join(
-  WORKSPACE_DIR,
+  WORKSPACE_GLOBAL_DIR,
   "orchestrator-state",
   "orchestrator-system-prompt.md",
+);
+
+/**
+ * Per-session orchestrator state directory.
+ * Holds session-specific orchestrator files (accumulated context, dimension summaries, connections).
+ * e.g. `workspace/session/session0/orchestrator-state/`
+ */
+export function getSessionOrchestratorStateDir(sessionId: number): string {
+  return path.join(getSessionDir(sessionId), "orchestrator-state");
+}
+
+/**
+ * Directory for concluded-dimension compact summaries.
+ * e.g. `workspace/session/session0/orchestrator-state/dimension-summaries/`
+ */
+export function getSessionDimensionSummariesDir(sessionId: number): string {
+  return path.join(getSessionOrchestratorStateDir(sessionId), "dimension-summaries");
+}
+
+/**
+ * File for cross-dimension connection insights generated after each review.
+ * e.g. `workspace/session/session0/orchestrator-state/connections.md`
+ */
+export function getSessionConnectionsFile(sessionId: number): string {
+  return path.join(getSessionOrchestratorStateDir(sessionId), "connections.md");
+}
+
+/**
+ * Append-only thesis evolution log for one session.
+ * Written after each orchestrator PLAN round as JSON.
+ * e.g. `workspace/session/session0/orchestrator-state/thesis-evolution.json`
+ */
+export function getSessionThesisEvolutionFile(sessionId: number): string {
+  return path.join(getSessionOrchestratorStateDir(sessionId), "thesis-evolution.json");
+}
+
+/**
+ * Current open questions for one session — overwritten after each review.
+ * Contains the known_gaps that weren't addressed in the last round.
+ * Injected into the orchestrator PLAN prompt on the next turn.
+ * e.g. `workspace/session/session0/orchestrator-state/open-questions.md`
+ */
+export function getSessionOpenQuestionsFile(sessionId: number): string {
+  return path.join(getSessionOrchestratorStateDir(sessionId), "open-questions.md");
+}
+
+/**
+ * Global append-only log of generalizable analytical patterns learned across sessions.
+ * Written by the learnedPatternsAgent after each successful deliver.
+ * Injected as a service into the orchestrator PLAN prompt.
+ * e.g. `workspace/global/orchestrator-state/learned-patterns.md`
+ */
+export const GLOBAL_LEARNED_PATTERNS_FILE = path.join(
+  WORKSPACE_GLOBAL_DIR,
+  "orchestrator-state",
+  "learned-patterns.md",
 );
 
 /**

@@ -9,8 +9,6 @@ const plannerTaskSchema = z.object({
   goal: z.string(),
   context: z.record(z.string(), z.unknown()).optional(),
   search_guidance: z.array(z.string()),
-  variables_to_find: z.array(z.string()).optional(),
-  extraction_focus: z.string().optional(),
   priority: z.enum(["high", "medium", "low"]),
   follow_domain_manual: z.boolean().optional(),
 });
@@ -18,7 +16,6 @@ const plannerTaskSchema = z.object({
 const bodySchema = z.object({
   task: plannerTaskSchema,
   domain_manual: z.record(z.string(), z.unknown()).optional(),
-  research_hygiene: z.record(z.string(), z.unknown()).optional(),
   user_preferences_summary: z.string().optional(),
   profile_context: z.string().optional(),
 });
@@ -47,7 +44,6 @@ export async function POST(req: Request) {
     const result = await runResearchWorker({
       task: b.task,
       domain_manual: b.domain_manual,
-      research_hygiene: b.research_hygiene,
       user_preferences_summary: b.user_preferences_summary ?? "",
       profile_context: b.profile_context,
     });

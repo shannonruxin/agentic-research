@@ -18,7 +18,6 @@ const pipelineConfigSchema = z
 const bodySchema = z.object({
   objective: z.string().min(1),
   subject_scope: z.string().max(12_000).optional(),
-  research_hygiene: z.record(z.string(), z.unknown()).optional(),
   pipeline_config: pipelineConfigSchema,
 });
 
@@ -46,7 +45,6 @@ export async function POST(req: Request) {
     const result = await runParallelPipeline({
       objective: b.objective,
       subject_scope: b.subject_scope,
-      research_hygiene: b.research_hygiene,
       pipeline_config: b.pipeline_config,
     });
 
